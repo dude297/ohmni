@@ -38,7 +38,7 @@ async function handle(req: Request) {
   if (userConfirmed !== true) return err(422, 'NOT_CONFIRMED', 'User must confirm the circuit before explaining');
   // The circuit graph is sent to Gemini for the narrative.
   if (consentMissing(parsed.data.aiConsent === true)) return err(422, 'CONSENT_REQUIRED', CONSENT_MESSAGE);
-  const blocked = await aiPolicyBlock(parsed.data.projectId);
+  const blocked = await aiPolicyBlock(req, parsed.data.projectId);
   if (blocked) return blocked;
   const out = await explain(graph, measuredVoltage);
   if (!out.ok) return err(out.status, out.code, out.message, out.details);

@@ -23,7 +23,18 @@ function fakeDb() {
     },
   };
 }
-vi.mock('@/lib/server/supabase', async (orig) => ({ ...(await orig<object>()), adminDb: () => fakeDb() }));
+// caller(): any Bearer token is "signed in" (RLS-scoped fake); no token -> 401 like the real one.
+vi.mock('@/lib/server/supabase', async (orig) => {
+  const real = await orig<typeof import('@/lib/server/supabase')>();
+  return {
+    ...real,
+    adminDb: () => fakeDb(),
+    caller: async (req: Request) => {
+      if (!/^Bearer .{20,}$/.test(req.headers.get('authorization') ?? '')) throw new real.ApiError(401, 'UNAUTHENTICATED', 'no');
+      return { user: { id: 'u1' }, db: fakeDb() };
+    },
+  };
+});
 vi.mock('@/lib/ai/vision', () => ({ extractWithFallback: vi.fn() }));
 vi.mock('@/lib/explain', () => ({ explain: vi.fn() }));
 vi.mock('@/lib/review', async (orig) => ({ ...(await orig<object>()), mentorExplain: vi.fn() }));
@@ -42,8 +53,10 @@ const WS = '10000000-0000-4000-a000-000000000001';
 const PROJECT = '20000000-0000-4000-a000-000000000001';
 const caller = { user: { id: 'u1' }, db: fakeDb(), requestId: 'req-1' } as unknown as Caller;
 const aiOff = () => (results.projects = { data: { workspace: { ai_processing: false } }, error: null });
-const postJson = (fn: (r: Request) => Promise<Response>, body: unknown) =>
-  fn(new Request('http://x', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+const AUTH = { authorization: 'Bearer ' + 'x'.repeat(40) };
+const postJson = (fn: (r: Request) => Promise<Response>, body: unknown, auth = true) =>
+  fn(new Request('http://x', { method: 'POST', headers: { 'content-type': 'application/json', ...(auth && AUTH) }, body: JSON.stringify(body) }));
+const req = (auth = true) => new Request('http://x', { method: 'POST', headers: auth ? AUTH : {} });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -78,17 +91,26 @@ describe('POST /api/v1/workspaces/:id/ai-policy authz', () => {
 });
 
 describe('AI_DISABLED_FOR_WORKSPACE enforcement', () => {
-  it('aiPolicyBlock: no/invalid projectId or AI on = allowed; AI off = 403; lookup error = 503 (fail closed)', async () => {
-    expect(await aiPolicyBlock(undefined)).toBeNull();
-    expect(await aiPolicyBlock('nope')).toBeNull();
+  it('aiPolicyBlock: member + AI off = 403; AI on, bad id, or lookup error (503, fail closed) otherwise', async () => {
+    expect(await aiPolicyBlock(req(), undefined)).toBeNull();
+    expect(await aiPolicyBlock(req(), 'nope')).toBeNull();
     results.projects = { data: { workspace: { ai_processing: true } }, error: null };
-    expect(await aiPolicyBlock(PROJECT)).toBeNull();
-    results.projects = { data: null, error: null };
-    expect(await aiPolicyBlock(PROJECT)).toBeNull();
+    expect(await aiPolicyBlock(req(), PROJECT)).toBeNull();
     aiOff();
-    expect((await aiPolicyBlock(PROJECT))?.status).toBe(403);
+    expect((await aiPolicyBlock(req(), PROJECT))?.status).toBe(403);
     results.projects = { data: null, error: { code: 'x' } };
-    expect((await aiPolicyBlock(PROJECT))?.status).toBe(503);
+    expect((await aiPolicyBlock(req(), PROJECT))?.status).toBe(503);
+  });
+
+  it('no existence leak: anonymous callers and non-members are treated as anonymous (projectId ignored)', async () => {
+    aiOff();
+    expect(await aiPolicyBlock(req(false), PROJECT)).toBeNull(); // unauthenticated: never even looked up
+    results.projects = { data: null, error: null }; // RLS hides a foreign project from a non-member
+    expect(await aiPolicyBlock(req(), PROJECT)).toBeNull();
+    aiOff();
+    vi.mocked(explain).mockResolvedValue({ ok: true, result: { trace: [] } } as never);
+    expect((await postJson(explainRoute, { graph: DIVIDER_10K_1K, userConfirmed: true, projectId: PROJECT }, false)).status).toBe(200);
+    expect(explain).toHaveBeenCalledOnce();
   });
 
   it('extract, explain and the review mentor refuse before any provider call', async () => {
@@ -96,7 +118,7 @@ describe('AI_DISABLED_FOR_WORKSPACE enforcement', () => {
     const fd = new FormData();
     fd.set('image', new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])], 'a.png', { type: 'image/png' }));
     fd.set('projectId', PROJECT);
-    const r1 = await extract(new Request('http://x/api/extract', { method: 'POST', body: fd }));
+    const r1 = await extract(new Request('http://x/api/extract', { method: 'POST', headers: AUTH, body: fd }));
     expect(r1.status).toBe(403);
     expect((await r1.json()).error.code).toBe('AI_DISABLED_FOR_WORKSPACE');
 

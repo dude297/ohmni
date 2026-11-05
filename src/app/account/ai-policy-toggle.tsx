@@ -36,6 +36,7 @@ export function AiPolicyToggle({ wsId, role, initial }: { wsId: string; role: st
         {on
           ? "Schematic reading, explanations and the mentor may send this workspace's circuits to third-party AI providers (free tiers may use inputs for training)."
           : "AI features are refused for this workspace's projects. Solve, probe and repair still work."}
+        {" Applies to AI calls made while working in this workspace's projects. Unsaved/anonymous analysis is governed by the per-request consent checkbox."}
         {!owner && " Only owners can change this."}
       </small>
       {err && <p role="alert" className="error">{err}</p>}

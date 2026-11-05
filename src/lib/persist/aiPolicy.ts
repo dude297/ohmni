@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { adminDb, ApiError, dbFail, persistenceConfigured, type Caller } from '../server/supabase';
+import { adminDb, ApiError, caller, dbFail, persistenceConfigured, type Caller } from '../server/supabase';
 import { audit } from './audit';
 
 // Per-workspace AI switch (workspaces.ai_processing). Owners flip it through the API; model routes check it before
@@ -24,14 +24,23 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const deny = (status: number, code: string, message: string) => Response.json({ error: { code, message } }, { status });
 
 /**
- * Call before any model provider call. Returns a 403 Response when the projectId belongs to a workspace with AI off,
- * otherwise null. Looked up by project id alone (service role): naming a project of an AI-off workspace is refused
- * whoever sends it. Fails closed (503) if the lookup itself errors.
+ * Call before any model provider call. Returns a 403 Response when an authenticated MEMBER names a project whose
+ * workspace has AI off, otherwise null. No/invalid token or a project the caller cannot see (RLS) = anonymous use:
+ * the projectId is ignored for the policy and nothing about the workspace is revealed. Fails closed (503) only when
+ * the member-scoped lookup itself errors.
+ * ponytail: an auth-service failure is indistinguishable from a bad token in caller() and is treated as anonymous.
  */
-export async function aiPolicyBlock(projectId: unknown): Promise<Response | null> {
-  if (typeof projectId !== 'string' || !UUID.test(projectId) || !persistenceConfigured()) return null;
+export async function aiPolicyBlock(req: Request, projectId: unknown): Promise<Response | null> {
+  if (typeof projectId !== 'string' || !UUID.test(projectId) || !req.headers.get('authorization') || !persistenceConfigured()) return null;
+  let c: Caller;
   try {
-    const { data, error } = await adminDb().from('projects').select('workspace:workspaces (ai_processing)').eq('id', projectId).maybeSingle();
+    c = await caller(req);
+  } catch {
+    return null; // not signed in (or token invalid): anonymous use, consent gate only
+  }
+  try {
+    // Caller's RLS client: projects and workspaces are readable only by members, so a non-member gets no row.
+    const { data, error } = await c.db.from('projects').select('workspace:workspaces (ai_processing)').eq('id', projectId).maybeSingle();
     if (error) throw error;
     const ws = (Array.isArray(data?.workspace) ? data.workspace[0] : data?.workspace) as { ai_processing?: boolean } | null | undefined;
     if (ws?.ai_processing === false)

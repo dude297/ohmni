@@ -49,7 +49,7 @@ async function handle(req: Request) {
   // Only the mentor sends the circuit to a model; the deterministic review needs no consent.
   if (mentor && consentMissing(parsed.data.aiConsent === true)) return err(422, 'CONSENT_REQUIRED', CONSENT_MESSAGE);
   if (mentor) {
-    const blocked = await aiPolicyBlock(parsed.data.projectId);
+    const blocked = await aiPolicyBlock(req, parsed.data.projectId);
     if (blocked) return blocked;
     const finding = review.findings.find((f) => f.id === mentor.findingId);
     if (!finding) return err(422, 'FINDING_NOT_FOUND', `No finding with id "${mentor.findingId}"`);

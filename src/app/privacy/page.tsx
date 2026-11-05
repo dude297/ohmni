@@ -117,9 +117,10 @@ export default function PrivacyPage() {
         configured to refuse any AI request that does not carry consent.
       </p>
       <p>
-        That per-request consent covers anonymous and unsaved use. Saved workspaces can turn AI off entirely: an owner switches off
-        &ldquo;AI processing&rdquo; in <Link href="/account">Account</Link>, and schematic reading, explanations and the mentor are then refused for
-        that workspace&apos;s projects before anything is sent to a provider. Solve, probe and repair never use AI and keep working.
+        Saved workspaces can turn AI off: an owner switches off &ldquo;AI processing&rdquo; in <Link href="/account">Account</Link>, and schematic
+        reading, explanations and the mentor are then refused before anything is sent to a provider. Applies to AI calls made while working in
+        this workspace&apos;s projects. Unsaved/anonymous analysis is governed by the per-request consent checkbox. Solve, probe and repair never
+        use AI and keep working.
       </p>
 
       <h2>Contact</h2>

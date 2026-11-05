@@ -7,6 +7,7 @@ import { ohmni, OhmniApiError, signInWithEmail, supabaseBrowser } from "../../li
 import type { Observation } from "../../lib/probe";
 import type { Graph } from "./api";
 import { measurementBodies } from "./lab-helpers";
+import { getProjectContext, setProjectContext } from "./project-context";
 
 type Source = "image_extraction" | "manual" | "fixture";
 type Opt = { id: string; name: string; ai_processing?: boolean };
@@ -61,18 +62,29 @@ export function SavePanel({ graph, source, observations }: { graph: Graph; sourc
     ohmni.workspaces.list().then(({ workspaces }) => {
       const list = workspaces.flatMap((w) => (w.workspace ? [w.workspace as unknown as Opt] : []));
       setWorkspaces(list);
-      if (list[0]) pickWorkspace(list[0].id);
+      // Start from the project the lab is already working in (its AI calls carry that projectId), else the first.
+      const ctx = getProjectContext();
+      const start = list.find((w) => w.id === ctx?.workspaceId) ?? list[0];
+      if (start) pickWorkspace(start.id, ctx?.projectId);
     }, (e) => setError(describe(e)));
   }, [userId]);
 
-  function pickWorkspace(id: string) {
+  // The selected saved project becomes the lab's AI context (workspace AI switch applies to later AI calls).
+  useEffect(() => {
+    const w = workspaces.find((x) => x.id === ws);
+    const p = projects.find((x) => x.id === project);
+    if (w && p) setProjectContext({ projectId: p.id, workspaceId: w.id, label: `${w.name} / ${p.name}`, aiProcessing: w.ai_processing !== false });
+  }, [workspaces, ws, projects, project]);
+
+  function pickWorkspace(id: string, prefer?: string) {
     setWs(id);
     setProjects([]);
     setProject(NEW);
     if (id === NEW) return;
     ohmni.projects.list(id).then(({ projects }) => {
       setProjects(projects);
-      if (projects[0]) setProject(projects[0].id);
+      const start = projects.find((p) => p.id === prefer) ?? projects[0];
+      if (start) setProject(start.id);
     }, (e) => setError(describe(e)));
   }
 
