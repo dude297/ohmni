@@ -30,3 +30,6 @@ CSP is **enforced** (`Content-Security-Policy`): self-only sources, `'unsafe-inl
 
 ## Post-deploy smoke
 `.github/workflows/postdeploy.yml` (push to main, no secrets) runs `npm run smoke:postdeploy -- <url> <sha>`: waits up to 10 min for `/api/health` `build` to equal the pushed commit, then checks `/api/solve` (divider = 2.5 V, bad JSON = 400) and `/probe` headers. No model calls.
+
+## Compliance pack
+SOC 2 readiness, incident response, backup/DR, SLOs, data retention, vendor risk and a DPA template: [docs/compliance/](compliance/README.md).
