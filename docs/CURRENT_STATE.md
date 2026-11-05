@@ -2,7 +2,10 @@
 
 Repo: https://github.com/dude297/Ohmni. Production: https://multimodal-hackathon-sage.vercel.app (Vercel project "ohmni"; URL unchanged). The October 11, 2026 hackathon deadline has passed; work now targets the private-alpha / paid-beta gates in PRODUCTION_PHASE1.md section F.
 
-## Current state (main at 7e314c3, 2026-11-05 04:20 PST)
+## Current state (main at c788689, 2026-11-05 ~05:50 PST)
+- **Release gates:** per-gate status with evidence and the owner action list is in [RELEASE_GATES.md](RELEASE_GATES.md). Summary: private alpha 2 MET / 5 PARTIAL / 2 NOT MET (rollback never rehearsed; out-of-model confident-wrong 6.19 % held-out voltage-only, 3.93 % with ohmmeter mode). Prod `/api/health` build `c788689`, post-deploy smoke 7/7 PASS, `npm test` 776 passed. Migration `20261105000000` is not yet applied to live and `REQUIRE_AI_CONSENT` is not yet set in Vercel.
+
+### Earlier tonight (main at 7e314c3, 04:20 PST)
 - **Production** `/api/health` build `7e314c3`, gemini/groq/jev configured, **`persistence: {configured: true, browserAuth: true}`** (Supabase env set on Vercel by the owner). `GET /api/v1/workspaces` without a token now returns 401 `UNAUTHENTICATED` (was 503).
 - **Merged 2026-11-05:** #95 Next.js 16.4.2 security patch (`2f3f362`), #93 post-deploy smoke canaries for probe / repair-verify / persistence (`2d31622`), #94 account deletion `POST /api/v1/account/delete` (`7e314c3`). CI and postdeploy green on `7e314c3`.
 - **Merged 2026-10-15:** #84 docs, #92 ohmmeter readings in saved investigations (`f3d7932`).
