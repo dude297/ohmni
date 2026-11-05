@@ -1,0 +1,5 @@
+Contact: https://github.com/dude297/ohmni/security/advisories/new
+Expires: 2027-11-05T00:00:00.000Z
+Policy: https://multimodal-hackathon-sage.vercel.app/security
+Canonical: https://multimodal-hackathon-sage.vercel.app/.well-known/security.txt
+Preferred-Languages: en

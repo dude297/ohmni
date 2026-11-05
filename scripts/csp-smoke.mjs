@@ -8,7 +8,7 @@
 const { chromium } = await import(process.env.CSP_PLAYWRIGHT_MODULE || 'playwright');
 const base = (process.argv[2] || 'http://localhost:3000').replace(/\/$/, '');
 const forceEnforce = process.argv.includes('--force-enforce');
-const ROUTES = ['/', '/lab', '/probe', '/build', '/review', '/multi-fault', '/twin', '/studio', '/ac', '/teams', '/learn', '/tracks', '/for-the-larp', '/for-the-larp/voice-lab'];
+const ROUTES = ['/', '/lab', '/probe', '/build', '/review', '/multi-fault', '/twin', '/studio', '/ac', '/teams', '/learn', '/tracks', '/for-the-larp', '/for-the-larp/voice-lab', '/account', '/privacy', '/terms', '/subprocessors', '/security'];
 // Buttons that only load local samples or run local engines (never image extraction / model calls).
 const SAFE = /^(load |.*sample|guide me|solve|find fault|run review|fill demo|rank fault|loaded bridge|advanced bridge|next|review pasted|reveal solver|hint 1|3d$|iso$)/i;
 const ZOD_PROBE = /^script-src blocked eval |'unsafe-eval' is not an allowed source/;

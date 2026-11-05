@@ -3,6 +3,9 @@ export type Tier = 'core' | 'experimental' | 'demo';
 
 export const TIERS: Record<string, Tier> = {
   '/lab': 'core', '/probe': 'core', '/build': 'core',
+  // Account deletion is a user right: never gated, even when the rest of /api/v1 (experimental) is off.
+  // Legal pages (/privacy, /terms, /subprocessors, /security) stay unlisted = untiered = never gated.
+  '/account': 'core', '/api/v1/account': 'core',
   '/api/extract': 'core', '/api/solve': 'core', '/api/probe': 'core', '/api/repair': 'core', '/api/health': 'core',
   '/review': 'experimental', '/multi-fault': 'experimental', '/twin': 'experimental', '/studio': 'experimental',
   '/ac': 'experimental', '/teams': 'experimental',

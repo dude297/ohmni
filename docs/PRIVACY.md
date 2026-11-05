@@ -2,6 +2,8 @@
 
 Plain statement of what leaves the browser, who receives it, and what Ohmni keeps. Where a provider policy was not checked, this page says **not verified** rather than guessing.
 
+User-facing versions (beta drafts, pending counsel review): `/privacy` (src/app/privacy/page.tsx), `/subprocessors`, `/terms`, `/security`, `/.well-known/security.txt`. Export and deletion UI: `/account`. **Change those pages whenever this file changes.**
+
 ## What goes to third-party AI providers
 
 | Route | What is sent | Provider (model) | When |
