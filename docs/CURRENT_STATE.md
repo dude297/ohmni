@@ -2,8 +2,19 @@
 
 Repo: https://github.com/dude297/Ohmni. Production: https://multimodal-hackathon-sage.vercel.app (Vercel project "ohmni"; URL unchanged). The October 11, 2026 hackathon deadline has passed; work now targets the private-alpha / paid-beta gates in PRODUCTION_PHASE1.md section F.
 
-## Current state (main at c788689, 2026-11-05 ~05:50 PST)
-- **Release gates:** per-gate status with evidence and the owner action list is in [RELEASE_GATES.md](RELEASE_GATES.md). Summary: private alpha 2 MET / 5 PARTIAL / 2 NOT MET (rollback never rehearsed; out-of-model confident-wrong 6.19 % held-out voltage-only, 3.93 % with ohmmeter mode). Prod `/api/health` build `c788689`, post-deploy smoke 7/7 PASS, `npm test` 776 passed. Migration `20261105000000` is not yet applied to live and `REQUIRE_AI_CONSENT` is not yet set in Vercel.
+## Current state (main at 019cf7e, 2026-11-05 ~05:35 PST, overnight sprint)
+- **Release gates:** per-gate status, evidence and the owner action list: [RELEASE_GATES.md](RELEASE_GATES.md). Compliance pack (SOC 2 readiness map, incident response, backup/DR, SLO, retention, vendor risk, DPA draft): [compliance/](compliance/README.md).
+- **Merged tonight:** #93-#100, #109-#111, #113-#118, #120-#122 and Actions bumps #101/#103/#104. Highlights:
+  - **AI consent** on every model-calling UI (/lab upload, /probe tutor, /review mentor, voice-lab), session-scoped; the server gate `REQUIRE_AI_CONSENT` is ready to turn on.
+  - **Sign-in + saved investigations in /lab** (save, report download, close with confirmed fault + benchmark consent); **/account** (workspaces, export, delete workspace, delete account, team: members/invites/roles, activity log, AI usage).
+  - **Legal/compliance pages** /privacy /terms /subprocessors /security (drafts pending counsel) and `/.well-known/security.txt`.
+  - **Audit log, resolved-case labels, retention purge** (#98), **workspace invitations + per-user daily model quotas** (#109).
+  - **Phase 02 slice** (#113): connectivity benchmark harness + Gemini component regions and yes/no junction questions in review (smoke readings only, n=8 synthetic images).
+  - **Solver fix** (#120): exact-rational reference solver found up to 2.8e-6 relative error (silent) inside 1 mOhm-1 GOhm; fixed (max 2.8e-13); calibration metrics (held-out in-model ECE 0.059, out-of-model 0.176).
+  - **CI/supply chain:** SHA-pinned least-privilege workflows, Dependabot, blocking `npm audit`, secret scanning + push protection + private vulnerability reporting + Dependabot alerts enabled, 30-min uptime smoke (#118).
+- **Verified:** prod `/api/health` build `019cf7e`; postdeploy smoke PASS; `persistence-e2e` ALL PASS against prod (latest after #114); headless browser QA against prod 37/39 (the 2 failures: migration below, voice-lab reason fixed in #122).
+- **Blocked on the owner:** live Supabase still lacks `20261105000000` (audit log / case labels; /account activity log returns 502 and audit writes are dropped until applied). PRs **#112** (security-review fixes, migration `20261105010000`) and **#119** (per-workspace AI switch, migration `20261105020000`, stacked on #112) are green and held until the migrations are pushed: `git checkout feat/workspace-ai-policy && supabase db push --linked`, then merge #112 then #119.
+- **Open dependency majors (not merged, owner review):** #106 eslint 10, #107 @types/node 26 (runtime is Node 24), #108 TypeScript 7, #102 checkout v7 (rebase requested).
 
 ### Earlier tonight (main at 7e314c3, 04:20 PST)
 - **Production** `/api/health` build `7e314c3`, gemini/groq/jev configured, **`persistence: {configured: true, browserAuth: true}`** (Supabase env set on Vercel by the owner). `GET /api/v1/workspaces` without a token now returns 401 `UNAUTHENTICATED` (was 503).
