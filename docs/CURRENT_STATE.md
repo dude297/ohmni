@@ -1,8 +1,15 @@
 # Ohmni — Current Verified State (Evidence Ledger)
 
-Repo: https://github.com/dude297/Ohmni. Production: https://multimodal-hackathon-sage.vercel.app (Vercel project "ohmni"; URL unchanged). Hard deadline: 5:30 PM PDT, October 11, 2026.
+Repo: https://github.com/dude297/Ohmni. Production: https://multimodal-hackathon-sage.vercel.app (Vercel project "ohmni"; URL unchanged). The October 11, 2026 hackathon deadline has passed; work now targets the private-alpha / paid-beta gates in PRODUCTION_PHASE1.md section F.
 
-## Current state (main at 27387ba, 2026-10-14 day)
+## Current state (main at 7e314c3, 2026-11-05 04:20 PST)
+- **Production** `/api/health` build `7e314c3`, gemini/groq/jev configured, **`persistence: {configured: true, browserAuth: true}`** (Supabase env set on Vercel by the owner). `GET /api/v1/workspaces` without a token now returns 401 `UNAUTHENTICATED` (was 503).
+- **Merged 2026-11-05:** #95 Next.js 16.4.2 security patch (`2f3f362`), #93 post-deploy smoke canaries for probe / repair-verify / persistence (`2d31622`), #94 account deletion `POST /api/v1/account/delete` (`7e314c3`). CI and postdeploy green on `7e314c3`.
+- **Merged 2026-10-15:** #84 docs, #92 ohmmeter readings in saved investigations (`f3d7932`).
+- **Supabase `ohmni` (`oyiwnfcbdiakzmqpufaf`):** all repo migrations applied (`rls-check`: pending none, RLS MATRIX ALL PASS). `scripts/persistence-e2e.mjs` run against **production** 2026-11-05: ALL PASS (confirm, measure, diagnose, repair, verify, isolation, export, owner delete, ohmmeter mode, account deletion incl. LAST_OWNER 409); throwaway users and workspaces cleaned up. Only the seeded demo user exists.
+- **Known gaps:** UI does not yet sign in, save, send `aiConsent`/`revisionId`, or render `fit: poor` (overnight sprint 2026-11-05 in progress); no public privacy/terms pages; no audit log; no invitation emails; out-of-model confident-wrong 3.93 % held-out; Supabase Auth redirect URLs for magic links must include the production origin (owner check in the Supabase dashboard).
+
+## Previous state (main at 27387ba, 2026-10-14 day, superseded)
 - **Production** https://multimodal-hackathon-sage.vercel.app `/api/health` reported build `51e5327` before the merges below (check `/api/health` for the current build); gemini/groq/jev configured (Vercel `GEMINI_MODEL` = `gemini-3.5-flash-lite`).
 - **Merged 2026-10-13/14:** #73 server-authoritative `/api/repair/verify` (`5c90656`), #74 workload ceilings (`fe74394`), #75 diagnosis honesty (`e16a270`; includes a merge fix so verify reads nodes from the top *modeled* hypothesis, since `unmodeled` has no predicted voltages).
 - **Merged 2026-10-14:** #76 AI consent gate (`1c52178`, `REQUIRE_AI_CONSENT` off by default) + docs/PRIVACY.md; #77 feature tiers + security headers + post-deploy smoke (`3fea355`; postdeploy workflow green against production); #78 request id, JSON logs, `INTERNAL` catch-all (`925f7c6`).
