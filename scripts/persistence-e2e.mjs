@@ -144,8 +144,7 @@ try {
 
   // Membership: viewer reads but cannot write; editor writes; only owners manage; last owner is protected.
   const members = `/api/v1/workspaces/${wsId}/members`;
-  const nobody = await call(A.token, 'POST', members, { email: 'nobody-e2e@test.invalid', role: 'viewer' });
-  check('add unknown email -> 404 USER_NOT_FOUND', nobody.status === 404 && nobody.json?.error?.code === 'USER_NOT_FOUND');
+  // An unknown email now sends a real Supabase invitation, so the e2e never adds one (covered by tests/server/invites-quota.test.ts).
   const addV = await call(A.token, 'POST', members, { email: B.email, role: 'viewer' });
   check('A adds B as viewer', addV.status === 200 && addV.json?.member?.role === 'viewer', `${addV.status}`);
   const bRead = await call(B.token, 'GET', `/api/v1/investigations/${invId}`);

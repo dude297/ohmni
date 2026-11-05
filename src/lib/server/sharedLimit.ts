@@ -19,6 +19,30 @@ async function hit(key: string, windowS: number, max: number): Promise<number> {
   return Number(data) || 0;
 }
 
+// Per-user daily quotas for signed-in callers (Bearer token), on top of the per-IP limits everyone gets.
+// An invalid/expired token is treated as anonymous (per-IP limits only), never as an error.
+// ponytail: "daily" = fixed 24 h window from the user's first call, not calendar days; fine for abuse/cost caps.
+const QUOTA_ENV: Record<string, [string, number]> = {
+  '/api/extract': ['QUOTA_EXTRACT_PER_DAY', 50],
+  '/api/explain': ['QUOTA_EXPLAIN_PER_DAY', 200],
+  '/api/review': ['QUOTA_REVIEW_PER_DAY', 100],
+};
+export const dailyQuota = (pathname: string) => {
+  const q = QUOTA_ENV[pathname];
+  return q ? Number(process.env[q[0]]) || q[1] : 0;
+};
+
+/** Seconds until the caller's quota resets if exhausted, else 0. Throws on DB/auth-service failure (caller fails open). */
+export async function userQuota(pathname: string, headers: Headers): Promise<number> {
+  const max = dailyQuota(pathname);
+  const token = /^Bearer ([A-Za-z0-9._-]{20,4096})$/.exec(headers.get('authorization') ?? '')?.[1];
+  if (!max || !token) return 0;
+  const { data, error } = await adminDb().auth.getUser(token);
+  if (error && !(error.status && error.status < 500)) throw new Error('auth unavailable'); // 4xx = bad token = anonymous
+  if (!data?.user) return 0;
+  return hit(`quota:${pathname}:${data.user.id}`, 86_400, max);
+}
+
 export async function checkShared(method: string, pathname: string, headers: Headers): Promise<Block | null> {
   if (method !== 'POST' || process.env.RATE_SHARED === 'off' || !persistenceConfigured()) return null;
   const rules = sharedRules(pathname);
@@ -37,6 +61,9 @@ export async function checkShared(method: string, pathname: string, headers: Hea
       return { status: 429, code: 'RATE_LIMITED', message: `Too many requests — this public demo protects free model quotas. Try again in ${perIp}s.`, retryAfter: perIp };
     if (global)
       return { status: 429, code: 'MODEL_BUDGET', message: `The shared model budget is used up for now. Try again in ${global}s.`, retryAfter: global };
+    const quota = await Promise.race([userQuota(pathname, headers), timeout]);
+    if (quota)
+      return { status: 429, code: 'QUOTA_EXCEEDED', message: `Your daily allowance for this AI step is used up. Try again in ${Math.ceil(quota / 3600)}h.`, retryAfter: quota };
     return null;
   } catch (e) {
     console.error(JSON.stringify({ msg: 'shared_rate_limit_unavailable', route: pathname, error: e instanceof Error ? e.message : 'unknown' }));

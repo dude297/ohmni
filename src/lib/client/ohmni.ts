@@ -59,7 +59,7 @@ export function createOhmniApi(getToken: () => Promise<string | null>, fetchImpl
     },
     members: {
       list: (ws: string) => call<{ members: Get<typeof M.listMembers> }>('GET', `/workspaces/${id(ws)}/members`),
-      upsert: (ws: string, b: { email: string; role: 'owner' | 'editor' | 'viewer' }) => call<{ member: Get<typeof M.upsertMember> }>('POST', `/workspaces/${id(ws)}/members`, b),
+      upsert: (ws: string, b: { email: string; role: 'owner' | 'editor' | 'viewer' }) => call<{ member: Omit<Get<typeof M.upsertMember>, 'invited'>; invited: boolean }>('POST', `/workspaces/${id(ws)}/members`, b),
       remove: (ws: string, userId: string) => call<{ removed: string }>('DELETE', `/workspaces/${id(ws)}/members/${id(userId)}`),
     },
     projects: {

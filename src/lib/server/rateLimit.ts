@@ -104,7 +104,7 @@ export function clientIp(h: Headers): string {
 
 export type Block = {
   status: 429 | 413;
-  code: 'RATE_LIMITED' | 'TOO_LARGE' | 'MODEL_BUDGET';
+  code: 'RATE_LIMITED' | 'TOO_LARGE' | 'MODEL_BUDGET' | 'QUOTA_EXCEEDED';
   message: string;
   retryAfter?: number;
 };
