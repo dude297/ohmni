@@ -449,6 +449,7 @@ export function VoiceLab() {
               </button>
               <label className="vl-check"><input type="checkbox" checked={speakOn} onChange={(e) => { setSpeakOn(e.target.checked); if (!e.target.checked) window.speechSynthesis?.cancel(); }} /> Speak replies</label>
             </div>
+            {!aiConsent && <p className="vl-note">{CONSENT_NEEDED} Readings, probing and repair never use AI.</p>}
             {expErr && <p className="vl-warn">{expErr}</p>}
             {exp && (
               <div className="vl-explain" aria-live="polite">
