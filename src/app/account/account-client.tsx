@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ohmni, OhmniApiError, signInWithEmail, supabaseBrowser } from "@/lib/client/ohmni";
+import { WorkspaceTeam } from "./team-panel";
 
 type Ws = { id: string; name: string; role: string };
 
@@ -176,6 +177,7 @@ function WorkspaceCard({ ws, onDeleted }: { ws: Ws; onDeleted: () => void }) {
         </div>
       )}
       <Err e={err} />
+      <WorkspaceTeam wsId={ws.id} role={ws.role} />
     </div>
   );
 }
