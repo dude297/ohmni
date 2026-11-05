@@ -2338,6 +2338,16 @@ input[type="checkbox"] {
 .review-source { margin: 20px 28px 0; padding: 12px; border: 1px solid var(--ohmni-border); border-radius: 7px; font-size: 12px; }
 .review-source img { display: block; max-width: 100%; max-height: 400px; object-fit: contain; margin: 12px auto; }
 .review-source a { color: #285944; font-size: 11px; text-decoration: underline; }
+.provenance-review { margin: 16px 28px 0; display: grid; gap: 10px; font-size: 12px; }
+.provenance-image { position: relative; width: fit-content; max-width: 100%; margin: 0 auto; }
+.provenance-image img { display: block; max-width: 100%; max-height: 360px; }
+.provenance-box { position: absolute; border: 1.5px dashed rgba(40, 89, 68, .55); background: transparent; padding: 0; cursor: pointer; border-radius: 3px; }
+.provenance-box span { position: absolute; top: -16px; left: 0; font-size: 10px; color: #285944; background: #fff; padding: 0 3px; }
+.provenance-box.active { border: 2px solid #285944; background: rgba(40, 89, 68, .12); }
+.provenance-box.question { border: 2px solid #b4530a; background: rgba(180, 83, 10, .14); pointer-events: none; }
+.provenance-caption { color: var(--ohmni-muted, #555); margin: 0; }
+.junction-question { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid #b4530a; border-radius: 7px; }
+.junction-question > div { display: flex; gap: 8px; flex-wrap: wrap; }
 .investigate-content { padding: 20px 28px; }
 .investigate-content .hypothesis-card, .investigate-content .probe-guide, .investigate-content .current-details, .investigate-content .other-hypotheses { margin-left: 0; margin-right: 0; }
 .investigation-notice { padding: 15px; background: #f0f4ed; border: 1px solid #d4e0d1; border-radius: 7px; margin-bottom: 18px; }

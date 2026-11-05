@@ -37,3 +37,37 @@ An earlier Groq run at a 6 s gap hit the 8k TPM limit (4 of 7 calls 429); the ta
 
 ## Order decision (2026-10-11)
 Owner switched the default order to **Groq primary, Gemini fallback** based on the measured table above (Groq 10/10 exact, 0 API errors, 735 ms median; gemini-3.5-flash 3/10 503s, 4223 ms). `VISION_PRIMARY=gemini` restores Gemini-first. Same normaliser, validation and trace semantics in both orders. Fixtures are synthetic; no general accuracy claim.
+
+## Phase 02 connectivity benchmark + provenance (2026-11-05)
+Promotion gate for "See denser" (docs/PRODUCT_ROADMAP.md): **exact connectivity** of the extracted graph vs the hand-labelled gold
+netlists in `fixtures/circuits/expected.json`. Scoring is `src/lib/bench/connectivity.ts` (tests: `tests/bench/connectivity.test.ts`):
+graph isomorphism with GND and the measure node pinned, component ids and other node names free, source polarity kept.
+`exact` = wiring + kinds + values; `wiring exact` ignores values; precision/recall are per component (kind+value); value accuracy =
+value matches among kind matches. A missing graph scores zero; provider API errors are excluded and counted separately.
+
+```
+node scripts/bench-vision.mjs --from <dir>                                   # offline: re-score saved extraction JSONs
+node scripts/bench-vision.mjs --live [--provider groq|gemini] [--limit 5] [--files a.png,b.png] [--gap-ms 8000] [--save <dir>]
+```
+Live = one call per image, sequential, stops after 2 consecutive 429s. Free tier only.
+
+**Live run, 2026-11-05 04:33-04:38 PST.** n is tiny and the images are synthetic; this is a smoke reading, not an accuracy rate.
+
+| provider / model | images scored | API errors (excluded) | exact | wiring exact | precision / recall / value acc | regions returned | junction questions |
+|---|---|---|---|---|---|---|---|
+| groq / qwen/qwen3.8-27b | 6 (01,02,03,05,07,08) | 4 × 429 at 6-20 s gaps, all re-run except 04 | 6/6 | 6/6 | 1.00 / 1.00 / 1.00 | 16/20 parts (03: none) | 0/6 (incl. 08, the dot-less crossing) |
+| google / gemini-3.5-flash | 2 (03, 08) | 0 | 2/2 | 2/2 | 1.00 / 1.00 / 1.00 | 7/7 parts | 1/2: 08 → VOUT/GND `crossing`, region on the actual crossing |
+
+Region **accuracy** has no gold boxes yet; visual check only: Gemini boxes on 08 sit on V1/R1/R2 and the crossing. Groq boxes on 02
+and 08 were offset (R1 `[0.25,0.1,0.4,0.2]` on both images, V1 too high), so `extractWithGroq` **drops Groq boxes** and only
+Gemini boxes reach the UI. Gemini latency on 08 was 17.4 s (vs 1.2-1.7 s Groq), so asking for regions is not free.
+
+**Schema** (all optional, Zod-validated in `toCandidateExtraction`, bad entries dropped, never fatal): per component `region`
+→ `sourceBoundingBox [x0,y0,x1,y1]` in 0..1 (pixel / 0..1000 boxes are dropped, not rescaled); top-level `uncertainJunctions`
+→ `junctionQuestions [{nodes:[a,b], kind:'crossing'|'junction', region?}]`, kept only for two distinct nodes present in the graph.
+
+**Review UI** (`src/components/ohmni/provenance-review.tsx`, mounted in the Lab review step): boxes over the uploaded image,
+click to select the component; each junction question is an explicit "Are A and B connected …?" Yes/No. Yes merges the nodes with the
+same transform as topology candidate B (GND survives, a resistor with both leads on one node is dropped and named); No keeps the graph.
+Confirmation is blocked while a question is open. The model never merges or adds a wire on its own; the merged graph still goes
+through `validateGraph` and the solver.

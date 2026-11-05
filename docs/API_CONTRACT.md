@@ -9,7 +9,7 @@ export type CircuitComponent = {
   value: number; // ohms (>0) for resistor; finite signed volts for source
   positiveNode: string;
   negativeNode: string;
-  sourceBoundingBox?: [number, number, number, number]; // normalized 0..1
+  sourceBoundingBox?: [number, number, number, number]; // normalized 0..1 [x0, y0, x1, y1], top-left origin
 };
 export type CircuitGraph = {
   schemaVersion: 1;
@@ -22,6 +22,7 @@ export type CandidateExtraction = {
   graph: CircuitGraph | null;
   warnings: string[];
   unresolvedConnections: string[];
+  junctionQuestions?: { nodes: [string, string]; kind: "crossing" | "junction"; region?: [number, number, number, number] }[]; // optional, additive (2026-11-05): maybe-connected pairs asked to the user, never auto-applied
   requiresHumanReview: true;
 };
 export type RouteChoice = "review_extraction" | "verify_topology" | "ask_user";

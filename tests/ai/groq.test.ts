@@ -56,6 +56,18 @@ describe('extractWithGroq', () => {
     expect(JSON.stringify(r.event)).not.toContain('gsk-test-secret');
   });
 
+  it('drops Groq region boxes (measured unreliable) but keeps junction questions', async () => {
+    const g = {
+      ...good,
+      components: good.components.map((c) => ({ ...c, region: [0.1, 0.1, 0.2, 0.2] })),
+      uncertainJunctions: [{ nodes: ['VOUT', 'GND'], kind: 'crossing', region: [0.7, 0.2, 0.8, 0.3] }],
+    };
+    fetchMock.mockResolvedValue(ok(JSON.stringify(g)));
+    const r = await extractWithGroq(new Uint8Array([1]), 'image/png');
+    expect(r.extraction.graph!.components.every((c) => c.sourceBoundingBox === undefined)).toBe(true);
+    expect(r.extraction.junctionQuestions).toEqual([{ nodes: ['VOUT', 'GND'], kind: 'crossing' }]);
+  });
+
   it('maps vsource -> dc_voltage', async () => {
     const g = { ...good, components: good.components.map((c) => (c.kind === 'dc_voltage' ? { ...c, kind: 'vsource' } : c)) };
     fetchMock.mockResolvedValue(ok(JSON.stringify(g)));

@@ -5,7 +5,7 @@ export type CircuitComponent = {
   value: number; // SI units: ohm or volt
   positiveNode: string; // resistor terminals are symmetric; voltage source terminals are directional
   negativeNode: string;
-  sourceBoundingBox?: [number, number, number, number]; // optional normalized image box
+  sourceBoundingBox?: [number, number, number, number]; // optional normalized image box [x0, y0, x1, y1], 0..1, top-left origin
 };
 export type CircuitGraph = {
   schemaVersion: 1;
@@ -18,7 +18,13 @@ export type CandidateExtraction = {
   graph: CircuitGraph | null;
   warnings: string[];
   unresolvedConnections: string[];
+  junctionQuestions?: JunctionQuestion[]; // optional: model-flagged maybe-connected node pairs, asked to the human, never auto-applied
   requiresHumanReview: true;
+};
+export type JunctionQuestion = {
+  nodes: [string, string];
+  kind: 'crossing' | 'junction';
+  region?: [number, number, number, number]; // normalized [x0, y0, x1, y1]
 };
 export type RouteChoice = 'review_extraction' | 'verify_topology' | 'ask_user';
 export type ModelTraceEvent = {
