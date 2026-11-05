@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
+import { requestIdFor } from './observe';
 
 // Server-only Supabase access for the persistence API (/api/v1/*).
 // - userDb(): anon key + the caller's JWT, so every read/write is enforced by RLS as that user.
@@ -20,7 +21,7 @@ export const persistenceConfigured = () => Boolean(url() && anonKey() && service
 
 const opts = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
 
-export type Caller = { user: User; db: SupabaseClient };
+export type Caller = { user: User; db: SupabaseClient; requestId?: string }; // requestId: recorded on audit events
 
 /** Authenticates the Bearer token and returns an RLS-scoped client for that user. */
 export async function caller(req: Request): Promise<Caller> {
@@ -30,7 +31,7 @@ export async function caller(req: Request): Promise<Caller> {
   const db = createClient(url()!, anonKey()!, { ...opts, global: { headers: { Authorization: `Bearer ${m[1]}` } } });
   const { data, error } = await db.auth.getUser(m[1]);
   if (error || !data.user) throw new ApiError(401, 'UNAUTHENTICATED', 'Session expired or invalid. Sign in again.');
-  return { user: data.user, db };
+  return { user: data.user, db, requestId: requestIdFor(req) };
 }
 
 let admin: SupabaseClient | undefined;

@@ -5,6 +5,7 @@ import { revisionId } from '../circuit/revision';
 import { probeStep, R_MAX, type ProbeStep, type Reading } from '../probe';
 import { RepairError, repairStep, VerifyInputError, verifyHypothesis } from '../repair';
 import { adminDb, ApiError, dbFail, engineVersion, type Caller } from '../server/supabase';
+import { audit } from './audit';
 
 // Persistence for Project -> Design Revision -> Investigation -> Measurement -> Hypothesis -> Repair Proposal -> Verification.
 // User-authored rows go through the caller's RLS-scoped client. Engine output (hypotheses, proposals, verifications) is
@@ -28,7 +29,19 @@ export const schemas = {
     sourceArtifactId: z.uuid().optional(), // saved schematic image this circuit was read from (same workspace, FK-enforced)
   }),
   investigation: z.object({ revisionId: z.uuid(), title: z.string().trim().min(1).max(200) }),
-  close: z.object({ status: z.enum(['resolved', 'abandoned']) }),
+  close: z.object({
+    status: z.enum(['resolved', 'abandoned']),
+    // Resolved only: the fault the engineer confirmed on the bench. faultClass matches the probe hypothesis suffixes
+    // (gold id = componentId:faultClass); 'other' = out-of-model, 'no_fault_found' = abstention (no componentId).
+    confirmedFault: z
+      .object({
+        componentId: z.string().trim().min(1).max(64).optional(),
+        faultClass: z.enum(['open', 'short', 'x10', 'x0.1', 'dead', 'other', 'no_fault_found']),
+        measuredOhms: z.number().finite().nonnegative().max(1e9).optional(), // out-of-circuit reading of the removed part
+      })
+      .optional(),
+    benchmarkConsent: z.boolean().optional(), // may this anonymised case be exported into the Ohmni benchmark
+  }),
   // Powered node voltage vs ground, or (ohmmeter mode) power-off resistance between nodes a and b (OL: send 1e9).
   measurement: z.union([
     z.object({ ...readingMeta, node: z.string().min(1).max(32), volts: z.number().finite().refine((v) => Math.abs(v) < 1e6, 'out of range') }),
@@ -59,7 +72,9 @@ async function requireEditor({ user, db }: Caller, workspaceId: string) {
 // ---- workspaces / projects / revisions -------------------------------------------------------------------------
 
 export async function createWorkspace(c: Caller, b: z.infer<typeof schemas.workspace>) {
-  return one(c.db.from('workspaces').insert({ name: b.name, created_by: c.user.id }).select('id, name, created_at').single(), 'create workspace');
+  const ws = await one(c.db.from('workspaces').insert({ name: b.name, created_by: c.user.id }).select('id, name, created_at').single(), 'create workspace');
+  await audit(c, { workspaceId: ws.id, action: 'workspace.create', targetType: 'workspace', targetId: ws.id });
+  return ws;
 }
 
 export async function listWorkspaces(c: Caller) {
@@ -69,10 +84,12 @@ export async function listWorkspaces(c: Caller) {
 }
 
 export async function createProject(c: Caller, b: z.infer<typeof schemas.project>) {
-  return one(
+  const p = await one(
     c.db.from('projects').insert({ workspace_id: b.workspaceId, name: b.name, description: b.description, created_by: c.user.id }).select('id, workspace_id, name, description, created_at').single(),
     'create project',
   );
+  await audit(c, { workspaceId: p.workspace_id, action: 'project.create', targetType: 'project', targetId: p.id });
+  return p;
 }
 
 export async function listProjects(c: Caller, workspaceId: string) {
@@ -96,6 +113,7 @@ export async function confirmRevision(c: Caller, projectId: string, b: z.infer<t
   if (error?.code === '23505')
     return { revision: await one(c.db.from('design_revisions').select(cols).eq('project_id', projectId).eq('revision_hash', revision_hash).maybeSingle(), 'revision'), existing: true };
   if (error || !data) dbFail(error, 'confirm revision');
+  await audit(c, { workspaceId: project.workspace_id, action: 'revision.confirm', targetType: 'design_revision', targetId: data.id, metadata: { projectId, source: b.source } });
   return { revision: data, existing: false };
 }
 
@@ -109,7 +127,7 @@ export async function listRevisions(c: Caller, projectId: string) {
 
 export async function openInvestigation(c: Caller, b: z.infer<typeof schemas.investigation>) {
   const rev = await one(c.db.from('design_revisions').select('id, workspace_id, project_id').eq('id', b.revisionId).maybeSingle(), 'revision');
-  return one(
+  const inv = await one(
     c.db
       .from('investigations')
       .insert({ workspace_id: rev.workspace_id, project_id: rev.project_id, revision_id: rev.id, title: b.title, opened_by: c.user.id })
@@ -117,6 +135,8 @@ export async function openInvestigation(c: Caller, b: z.infer<typeof schemas.inv
       .single(),
     'open investigation',
   );
+  await audit(c, { workspaceId: inv.workspace_id, action: 'investigation.open', targetType: 'investigation', targetId: inv.id, metadata: { revisionId: rev.id } });
+  return inv;
 }
 
 type Loaded = {
@@ -199,11 +219,75 @@ export async function getInvestigation(c: Caller, id: string, opts: { ohmmeter?:
   };
 }
 
-export async function closeInvestigation(c: Caller, id: string, b: z.infer<typeof schemas.close>) {
-  return one(
-    c.db.from('investigations').update({ status: b.status, closed_at: new Date().toISOString() }).eq('id', id).eq('status', 'open').select('id, status, closed_at').maybeSingle(),
+type CloseBody = z.infer<typeof schemas.close>;
+
+/** Validates a confirmed fault against the stored circuit and builds the case_resolutions row (pure; unit-tested). */
+export function caseResolution(
+  inv: { id: string; workspace_id: string },
+  graph: CircuitGraph,
+  fault: NonNullable<CloseBody['confirmedFault']>,
+  consent: boolean,
+  passedVerificationId: string | null,
+  userId: string,
+) {
+  const none = fault.faultClass === 'no_fault_found';
+  if (none && fault.componentId) throw new ApiError(422, 'INVALID_REQUEST', 'no_fault_found takes no componentId.');
+  if (!none && !graph.components.some((x) => x.id === fault.componentId))
+    throw new ApiError(422, 'UNKNOWN_COMPONENT', `Component "${fault.componentId ?? ''}" is not part of this circuit.`);
+  return {
+    investigation_id: inv.id,
+    workspace_id: inv.workspace_id,
+    component_id: fault.componentId ?? null,
+    fault_class: fault.faultClass,
+    measured_ohms: fault.measuredOhms ?? null,
+    benchmark_consent: consent,
+    benchmark_eligible: passedVerificationId !== null, // only a server-recomputed passing post-repair verification counts
+    verification_id: passedVerificationId,
+    resolved_by: userId,
+  };
+}
+
+/** Latest passing server-side verification of any repair proposal in this investigation (RLS read), or null. */
+async function passedVerification(c: Caller, investigationId: string): Promise<string | null> {
+  const { data: props, error } = await c.db.from('repair_proposals').select('id').eq('investigation_id', investigationId);
+  if (error) dbFail(error, 'load repair proposals');
+  if (!props?.length) return null;
+  const { data, error: e2 } = await c.db
+    .from('verifications')
+    .select('id')
+    .in('repair_proposal_id', props.map((p) => p.id))
+    .eq('verified', true)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (e2) dbFail(e2, 'load verifications');
+  return (data?.[0]?.id as string | undefined) ?? null;
+}
+
+export async function closeInvestigation(c: Caller, id: string, b: CloseBody) {
+  if (b.confirmedFault && b.status !== 'resolved') throw new ApiError(422, 'INVALID_REQUEST', 'confirmedFault is only accepted when status is "resolved".');
+  const l = b.confirmedFault ? await load(c, id) : null;
+  const row = l && b.confirmedFault ? caseResolution(l.inv, l.graph, b.confirmedFault, !!b.benchmarkConsent, await passedVerification(c, id), c.user.id) : null;
+  // The RLS-scoped update proves editor access before anything is written with the service role.
+  const inv = await one(
+    c.db.from('investigations').update({ status: b.status, closed_at: new Date().toISOString() }).eq('id', id).eq('status', 'open').select('id, workspace_id, status, closed_at').maybeSingle(),
     'open investigation',
   );
+  let resolution = null;
+  if (row) {
+    // ponytail: not in one transaction with the close; if this insert fails the case is closed without a label (502).
+    resolution = await one(
+      adminDb().from('case_resolutions').insert(row).select('component_id, fault_class, measured_ohms, benchmark_consent, benchmark_eligible, verification_id, created_at').single(),
+      'store case resolution',
+    );
+  }
+  await audit(c, {
+    workspaceId: inv.workspace_id,
+    action: 'investigation.close',
+    targetType: 'investigation',
+    targetId: id,
+    metadata: { status: b.status, ...(resolution && { faultClass: resolution.fault_class, benchmarkEligible: resolution.benchmark_eligible, benchmarkConsent: resolution.benchmark_consent }) },
+  });
+  return { ...inv, resolution };
 }
 
 // ---- evidence -> engine ------------------------------------------------------------------------------------------

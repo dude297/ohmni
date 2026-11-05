@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFormData, sniffImage } from '../server/readBody';
 import { adminDb, ApiError, dbFail, type Caller } from '../server/supabase';
+import { audit } from './audit';
 
 // Saved schematic images (opt-in). Bytes live in the private 'artifacts' bucket at <workspace>/<project>/<sha256>.<ext>;
 // the artifacts row is the provenance record (hash, size, type, AI-processing consent). Clients never touch Storage:
@@ -37,6 +38,7 @@ export async function uploadArtifact(c: Caller, projectId: string, req: Request)
     .select(COLS)
     .single();
   if (e3) dbFail(e3, 'record artifact'); // ponytail: the object stays if this insert fails; same-hash re-upload overwrites it
+  await audit(c, { workspaceId: project.workspace_id, action: 'artifact.upload', targetType: 'artifact', targetId: data.id, metadata: { projectId, bytes: bytes.length, mime, aiConsent: consent } });
   return data;
 }
 

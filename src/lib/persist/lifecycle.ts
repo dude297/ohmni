@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { adminDb, ApiError, dbFail, type Caller } from '../server/supabase';
 import { removeWorkspaceObjects } from './artifacts';
+import { audit } from './audit';
 
 // Workspace data lifecycle: full export (owners/editors, RLS reads) and permanent deletion (owner, typed confirmation).
 // Viewers can read records in the app but not bulk-download them (contractor/auditor seats).
@@ -33,6 +34,7 @@ export async function exportWorkspace(c: Caller, workspaceId: string) {
     if (rows.length >= MAX_PER_TABLE) throw new ApiError(413, 'EXPORT_TOO_LARGE', `Table ${t} exceeds ${MAX_PER_TABLE} rows; contact support for a bulk export.`);
     tables[t] = rows;
   }
+  await audit(c, { workspaceId, action: 'workspace.export', targetType: 'workspace', targetId: workspaceId, metadata: { rows: Object.values(tables).reduce((n, r) => n + r.length, 0) } });
   return { schema: 'ohmni.workspace-export.v1' as const, exportedAt: new Date().toISOString(), workspace, tables };
 }
 
@@ -49,6 +51,8 @@ export async function deleteWorkspace(c: Caller, workspaceId: string, b: z.infer
   const { data: gone, error: e2 } = await c.db.from('workspaces').delete().eq('id', workspaceId).select('id');
   if (e2) dbFail(e2, 'delete workspace');
   if (!gone?.length) throw new ApiError(403, 'FORBIDDEN', 'Only workspace owners can delete a workspace.');
+  // workspace_id null: the row is gone (audit_events.workspace_id is on delete set null); the trail keeps target_id.
+  await audit(c, { workspaceId: null, action: 'workspace.delete', targetType: 'workspace', targetId: workspaceId });
   return { deleted: workspaceId };
 }
 
@@ -89,5 +93,7 @@ export async function deleteAccount(c: Caller, b: z.infer<typeof accountDeleteSc
   }
   const { error: e4 } = await admin.auth.admin.deleteUser(c.user.id);
   if (e4) throw new ApiError(500, 'INTERNAL', 'Account deletion failed after its workspaces were removed; retry.');
+  // actor null: the auth user no longer exists. target_id keeps the (now unlinkable) user id for the trail.
+  await audit(c, { workspaceId: null, action: 'account.delete', targetType: 'user', targetId: c.user.id, metadata: { workspacesDeleted: solo.length, membershipsRemoved: ids.length - solo.length } }, null);
   return { deleted: true, workspacesDeleted: solo, membershipsRemoved: ids.length - solo.length };
 }

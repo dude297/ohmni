@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminDb, ApiError, dbFail, type Caller } from '../server/supabase';
+import { audit } from './audit';
 
 // Workspace membership. Clients have no write policy on workspace_members: the server checks the caller's role
 // through RLS (their own membership row), then writes with the service role. Members are added by email only if
@@ -45,6 +46,7 @@ export async function upsertMember(c: Caller, workspaceId: string, b: z.infer<ty
     .select('user_id, role, created_at')
     .single();
   if (e2) dbFail(e2, 'save member');
+  await audit(c, { workspaceId, action: 'member.upsert', targetType: 'user', targetId: userId as string, metadata: { role: b.role } });
   return { ...data, email: b.email };
 }
 
@@ -57,5 +59,6 @@ export async function removeMember(c: Caller, workspaceId: string, userId: strin
   const { data, error } = await adminDb().from('workspace_members').delete().eq('workspace_id', workspaceId).eq('user_id', userId).select('user_id');
   if (error) dbFail(error, 'remove member');
   if (!data?.length) throw new ApiError(404, 'NOT_FOUND', 'member: not found.');
+  await audit(c, { workspaceId, action: 'member.remove', targetType: 'user', targetId: userId, metadata: { self: userId === c.user.id } });
   return { removed: userId };
 }
