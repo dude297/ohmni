@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Download, LoaderCircle, LogOut, Mail, Save } from "lucide-react";
+import { CheckCircle2, Download, LoaderCircle, LogOut, Mail, Save } from "lucide-react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { ohmni, OhmniApiError, signInWithEmail, supabaseBrowser } from "../../lib/client/ohmni";
 import type { Observation } from "../../lib/probe";
@@ -11,6 +11,12 @@ import { measurementBodies } from "./lab-helpers";
 type Source = "image_extraction" | "manual" | "fixture";
 type Opt = { id: string; name: string };
 const NEW = "__new__";
+const FAULTS = [
+  ["open", "Open"], ["short", "Short"], ["x10", "Value ~10x high"], ["x0.1", "Value ~10x low"],
+  ["dead", "Dead source"], ["other", "Other (not modelled)"], ["no_fault_found", "No fault found"],
+] as const;
+type FaultClass = (typeof FAULTS)[number][0];
+type Closed = { status: string; resolution: { fault_class: string; benchmark_consent: boolean; benchmark_eligible: boolean } | null };
 const noSubscribe = () => () => {};
 
 const describe = (e: unknown) =>
@@ -34,6 +40,12 @@ export function SavePanel({ graph, source, observations }: { graph: Graph; sourc
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState<{ id: string; count: number } | null>(null);
+  const [closeStatus, setCloseStatus] = useState<"resolved" | "abandoned">("resolved");
+  const [faultComp, setFaultComp] = useState(graph.components[0]?.id ?? "");
+  const [faultClass, setFaultClass] = useState<FaultClass>("open");
+  const [ohms, setOhms] = useState("");
+  const [benchConsent, setBenchConsent] = useState(false);
+  const [closed, setClosed] = useState<Closed | null>(null);
 
   useEffect(() => {
     const c = client;
@@ -92,6 +104,18 @@ export function SavePanel({ graph, source, observations }: { graph: Graph; sourc
     const bodies = measurementBodies(observations);
     for (const b of bodies) await ohmni.investigations.measure(investigation.id, b);
     setSaved({ id: investigation.id, count: bodies.length });
+    setClosed(null);
+  });
+
+  const close = () => run(async () => {
+    if (!saved) return;
+    const none = faultClass === "no_fault_found";
+    const measuredOhms = ohms.trim() ? Number(ohms) : undefined;
+    if (measuredOhms !== undefined && !(Number.isFinite(measuredOhms) && measuredOhms >= 0)) throw new Error("Measured ohms must be a number ≥ 0.");
+    const { investigation } = await ohmni.investigations.close(saved.id, closeStatus, closeStatus === "resolved"
+      ? { confirmedFault: { faultClass, ...(!none && { componentId: faultComp }), ...(measuredOhms !== undefined && { measuredOhms }) }, benchmarkConsent: benchConsent }
+      : {});
+    setClosed(investigation);
   });
 
   const downloadReport = () => run(async () => {
@@ -130,6 +154,45 @@ export function SavePanel({ graph, source, observations }: { graph: Graph; sourc
             <button className="button secondary small" disabled={busy} onClick={() => void downloadReport()}>{busy ? <LoaderCircle size={14} className="spinner" /> : <Download size={14} />} Download report (.md)</button>
             <button className="text-button" disabled={busy} onClick={() => setSaved(null)}>Save again</button>
           </div>
+          {closed ? (
+            <p>
+              Investigation {closed.status}.{" "}
+              {closed.resolution && (closed.resolution.benchmark_eligible
+                ? `Benchmark eligible: a server-side repair verification passed${closed.resolution.benchmark_consent ? "; you allowed its anonymised use." : ", but you did not allow its use, so it stays out."}`
+                : "Not benchmark eligible: no repair in this investigation was verified server-side, so this case is recorded but not used for the benchmark.")}
+            </p>
+          ) : (
+            <form onSubmit={(e) => { e.preventDefault(); void close(); }}>
+              <label htmlFor="close-status">Close investigation</label>
+              <div className="save-row">
+                <select id="close-status" value={closeStatus} disabled={busy} onChange={(e) => setCloseStatus(e.target.value as "resolved" | "abandoned")}>
+                  <option value="resolved">Resolved: I found the fault</option>
+                  <option value="abandoned">Abandoned</option>
+                </select>
+              </div>
+              {closeStatus === "resolved" && (
+                <>
+                  <label htmlFor="close-class">Confirmed fault (what you found on the bench)</label>
+                  <div className="save-row">
+                    <select id="close-class" value={faultClass} disabled={busy} onChange={(e) => setFaultClass(e.target.value as FaultClass)}>
+                      {FAULTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                    {faultClass !== "no_fault_found" && (
+                      <select aria-label="Faulty component" value={faultComp} disabled={busy} onChange={(e) => setFaultComp(e.target.value)}>
+                        {graph.components.map((c) => <option key={c.id} value={c.id}>{c.id}</option>)}
+                      </select>
+                    )}
+                    <input aria-label="Measured ohms (optional)" type="number" min={0} step="any" placeholder="Measured Ω (optional)" value={ohms} disabled={busy} onChange={(e) => setOhms(e.target.value)} />
+                  </div>
+                  <label className="ai-consent inline">
+                    <input type="checkbox" checked={benchConsent} disabled={busy} onChange={(e) => setBenchConsent(e.target.checked)} />
+                    <span>Allow this anonymised case (circuit + readings, no names or images) to be used to improve Ohmni&apos;s diagnosis benchmark.</span>
+                  </label>
+                </>
+              )}
+              <button className="button secondary small" type="submit" disabled={busy}>{busy ? <LoaderCircle size={14} className="spinner" /> : <CheckCircle2 size={14} />} Close investigation</button>
+            </form>
+          )}
         </div>
       ) : (
         <form onSubmit={(e) => { e.preventDefault(); void save(); }}>

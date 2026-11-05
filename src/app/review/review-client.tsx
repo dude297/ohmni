@@ -6,6 +6,7 @@ import { DIVIDER_10K_10K, LOADED_BRIDGE_12V } from "../../lib/circuit/fixtures";
 import { REVIEW_DISCLAIMER } from "../../lib/review/disclaimer";
 import type { Finding } from "../../lib/review/rules";
 import type { ModelTraceEvent } from "../../lib/circuit/types";
+import { AiConsent, CONSENT_NEEDED, useAiConsent, withAiConsent } from "../../components/ohmni/ai-consent";
 import "./review.css";
 
 const SAMPLES = {
@@ -31,6 +32,7 @@ export function ReviewClient() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [mentors, setMentors] = useState<Record<string, Mentor>>({});
+  const [aiConsent] = useAiConsent();
 
   const run = async () => {
     setBusy("review"); setError(null); setMentors({});
@@ -41,7 +43,7 @@ export function ReviewClient() {
   const ask = async (f: Finding) => {
     setBusy(f.id); setError(null);
     try {
-      const r = await call({ graph: SAMPLES[key].graph, userConfirmed: confirmed, mentor: { findingId: f.id, level: "beginner", mode: "explain" } });
+      const r = await call(withAiConsent({ graph: SAMPLES[key].graph, userConfirmed: confirmed, mentor: { findingId: f.id, level: "beginner", mode: "explain" } }, aiConsent));
       if (r.mentor) setMentors((m) => ({ ...m, [f.id]: r.mentor! }));
     } catch (e) { setError((e as Error).message); }
     setBusy(null);
@@ -78,6 +80,8 @@ export function ReviewClient() {
         {result && (
           <section aria-label="Findings">
             <h2>Findings ({result.findings.length})</h2>
+            <AiConsent what="this circuit and the finding are sent to Google Gemini for the AI mentor" />
+            {!aiConsent && <p className="rv-muted">{CONSENT_NEEDED} The findings themselves never use AI.</p>}
             <ul className="rv-list">
               {result.findings.map((f) => {
                 const m = mentors[f.id];
@@ -93,7 +97,7 @@ export function ReviewClient() {
                         </p>
                       </div>
                     ) : (
-                      <button className="rv-btn rv-ghost" onClick={() => ask(f)} disabled={busy !== null}>
+                      <button className="rv-btn rv-ghost" onClick={() => ask(f)} disabled={!aiConsent || busy !== null}>
                         {busy === f.id ? "Asking..." : "Explain with AI (uses model quota)"}
                       </button>
                     )}

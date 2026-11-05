@@ -73,7 +73,9 @@ export function createOhmniApi(getToken: () => Promise<string | null>, fetchImpl
       open: (b: Body<'investigation'>) => call<{ investigation: Get<typeof P.openInvestigation> }>('POST', '/investigations', b),
       /** `ohmmeter: true` lets `probe.next` ask for a power-off resistance reading (`next.kind === 'resistance'`). */
       get: (inv: string, o: { ohmmeter?: boolean } = {}) => call<Get<typeof P.getInvestigation>>('GET', `/investigations/${id(inv)}${o.ohmmeter ? '?ohmmeter=1' : ''}`),
-      close: (inv: string, status: 'resolved' | 'abandoned') => call<{ investigation: Get<typeof P.closeInvestigation> }>('POST', `/investigations/${id(inv)}/close`, { status }),
+      /** `resolved` may carry the bench-confirmed fault and opt-in benchmark consent; `resolution.benchmark_eligible` is server-decided. */
+      close: (inv: string, status: 'resolved' | 'abandoned', extra: Omit<Body<'close'>, 'status'> = {}) =>
+        call<{ investigation: Get<typeof P.closeInvestigation> }>('POST', `/investigations/${id(inv)}/close`, { status, ...extra }),
       /** Stores the reading (`{ node, volts }` or `{ kind: 'resistance', a, b, ohms }`) and returns the recomputed probe step (render `probe`). */
       measure: (inv: string, b: Body<'measurement'>) => call<Get<typeof P.addMeasurement>>('POST', `/investigations/${id(inv)}/measurements`, b),
       repair: (inv: string) => call<Get<typeof P.proposeRepair>>('POST', `/investigations/${id(inv)}/repair`),
