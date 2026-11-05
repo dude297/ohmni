@@ -8,7 +8,7 @@ import { requestIdFor } from './observe';
 //   Storage objects. Prefer an RLS policy where one can express the rule. The key never leaves the server (no NEXT_PUBLIC_).
 
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string, public details?: unknown) {
+  constructor(public status: number, public code: string, message: string, public details?: unknown, public retryAfter?: number) {
     super(message);
   }
 }
