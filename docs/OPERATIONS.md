@@ -34,6 +34,16 @@ Production: https://multimodal-hackathon-sage.vercel.app (Vercel project `ohmni`
 - Supabase backups follow the plan (Free: daily, short retention; Pro adds point-in-time recovery). Not yet restore-tested: do one restore into a scratch project before paid beta.
 - Workspace deletion is permanent (owner + typed name), removes stored images first, then cascades through every table. Offer the export first.
 
+## Retention job
+`public.purge_expired()` deletes `model_traces` > 90 days and `audit_events` > 400 days (service role only; returns `{ model_traces, audit_events }` counts). It is **not scheduled yet**. To schedule (owner decision; enables an extension): Dashboard -> Database -> Extensions -> enable `pg_cron`, then in the SQL editor:
+```sql
+select cron.schedule('ohmni-purge-expired', '17 3 * * *', $$select public.purge_expired()$$);
+```
+Check runs with `select * from cron.job_run_details order by start_time desc limit 5;`. Manual run: `select public.purge_expired();`. Changing a period = a new forward migration that replaces the function, plus a docs/PRIVACY.md update.
+
+## Real-case export
+`node --env-file=.env.local scripts/export-real-cases.mjs --out <dir>` (service role) exports consented, verified resolved cases into the bench format. Use `--dry-run` for a count; write to a directory outside the repo.
+
 ## Incidents
 | Symptom | First check | Mitigation |
 |---|---|---|

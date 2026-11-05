@@ -10,6 +10,8 @@ Workspace → Project → Design Revision (immutable confirmed graph) → Invest
 - **Confirmation is data:** `design_revisions.confirmed_by` is the authenticated caller; there is no client flag.
 - **Append-only evidence:** no client update/delete on measurements; corrections use `supersedes`.
 - **Server authority:** hypotheses, proposals and verifications have no client insert policy. The server recomputes them from **stored** evidence and writes them with the service role only after the caller's own RLS-scoped read/insert succeeded. Verification readings are stored as evidence (`provenance.kind = 'verification'`) but excluded from diagnosis.
+- **Audit log:** `audit_events` (migration `20261105000000_audit_log_resolved_cases.sql`) is append-only: no client insert/update/delete (policies absent and privileges revoked); the server writes one event per v1 mutation with the service role (`src/lib/persist/audit.ts`); owners read it (`GET /workspaces/:id/audit`). `workspace_id` and `actor_id` are `on delete set null`, so the trail of a deleted workspace or account (ids only, no names) survives until the retention purge; null-workspace rows are readable by no client.
+- **Case labels:** `case_resolutions` (confirmed fault, consent, `benchmark_eligible`) is server-written only, in its own table because editors can update `investigations`. Eligible only when a stored server-side verification passed.
 - **Roles:** owner/editor write evidence, viewer reads. Owners manage members through `/api/v1/workspaces/:id/members` (existing accounts only, by email; no invitation emails). Email lookup and member listing use service-role-only SQL functions; a workspace always keeps at least one owner.
 
 ## Verification
@@ -36,6 +38,12 @@ Opt-in per upload: `POST /projects/:id/artifacts` stores the schematic in the pr
 
 ## Data lifecycle
 Owners and editors can download a full workspace export (`/workspaces/:id/export`, includes the member list); viewers read in the app but cannot bulk-export. Owners delete a workspace permanently by typing its exact name (`/workspaces/:id/delete`); the UI should offer the export first. Deletion cascades through every table (`20261014010000_cascade_intra_workspace_fks.sql`).
+
+## Resolved cases -> benchmark
+On close with `status: resolved` the UI asks for the confirmed fault and benchmark consent (API_CONTRACT.md). `node --env-file=.env.local scripts/export-real-cases.mjs --out <dir> [--dry-run]` (service role) writes consented, eligible cases as `<dir>/real-<id8>/case.json` (`source: 'real'`, graph, gold `component:class`, diagnosis observations without verification/superseded readings, `inModel`). No names, titles, user ids or images are exported. Write outside the repo unless the data owners agreed to publication.
+
+## Retention
+`public.purge_expired()` (security definer, service role only) deletes `model_traces` older than 90 days and `audit_events` older than 400 days and returns the counts. Scheduling: docs/OPERATIONS.md.
 
 ## Usage metering
 Signed-in calls to `/api/extract` / `/api/explain` with a `projectId` store trace metadata in `model_traces`; `GET /api/v1/workspaces/:id/usage` aggregates it. First measured point (2026-10-14, local dev against Gemini free tier): one `/api/explain` = 570 input + 349 output tokens on `gemini-3.5-flash-lite`, 1.7 s. `scripts/persistence-e2e.mjs --with-model` repeats this check (one model call).
