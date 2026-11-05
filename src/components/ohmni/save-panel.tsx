@@ -16,7 +16,7 @@ const FAULTS = [
   ["dead", "Dead source"], ["other", "Other (not modelled)"], ["no_fault_found", "No fault found"],
 ] as const;
 type FaultClass = (typeof FAULTS)[number][0];
-type Closed = { status: string; resolution: { fault_class: string; benchmark_consent: boolean; benchmark_eligible: boolean } | null };
+type Closed = { status: string; resolution: { fault_class: string; benchmark_consent: boolean; benchmark_eligible: boolean } | null; consentNote?: string };
 const noSubscribe = () => () => {};
 
 const describe = (e: unknown) =>
@@ -159,7 +159,8 @@ export function SavePanel({ graph, source, observations }: { graph: Graph; sourc
               Investigation {closed.status}.{" "}
               {closed.resolution && (closed.resolution.benchmark_eligible
                 ? `Benchmark eligible: a server-side repair verification passed${closed.resolution.benchmark_consent ? "; you allowed its anonymised use." : ", but you did not allow its use, so it stays out."}`
-                : "Not benchmark eligible: no repair in this investigation was verified server-side, so this case is recorded but not used for the benchmark.")}
+                : "Not benchmark eligible: no repair of this exact fault was verified server-side, so this case is recorded but not used for the benchmark.")}
+              {closed.consentNote && <> {closed.consentNote}</>}
             </p>
           ) : (
             <form onSubmit={(e) => { e.preventDefault(); void close(); }}>
