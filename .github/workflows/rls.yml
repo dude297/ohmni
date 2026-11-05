@@ -22,10 +22,10 @@ jobs:
       - name: Credentials not configured
         if: env.SUPABASE_ACCESS_TOKEN == '' || env.PROJECT_REF == ''
         run: echo "::notice::SUPABASE_ACCESS_TOKEN secret / SUPABASE_PROJECT_REF variable not set; RLS matrix skipped."
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: env.SUPABASE_ACCESS_TOKEN != '' && env.PROJECT_REF != ''
         with: { node-version-file: .nvmrc }
-      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
+      - uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3.2.0
         if: env.SUPABASE_ACCESS_TOKEN != '' && env.PROJECT_REF != ''
         with: { version: 2.101.0 }
       - name: RLS matrix (rolled back)

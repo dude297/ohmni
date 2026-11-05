@@ -12,7 +12,7 @@ export function v1(route: string, handler: (req: Request, params: Record<string,
       const out = await handler(req, (await ctx?.params) ?? {});
       return out instanceof Response ? out : Response.json(out);
     } catch (e) {
-      if (e instanceof ApiError) return Response.json({ error: { code: e.code, message: e.message, ...(e.details !== undefined && { details: e.details }) } }, { status: e.status });
+      if (e instanceof ApiError) return Response.json({ error: { code: e.code, message: e.message, ...(e.details !== undefined && { details: e.details }) } }, { status: e.status, headers: e.retryAfter ? { 'Retry-After': String(e.retryAfter) } : undefined });
       if (e instanceof BodyError) return Response.json({ error: { code: e.code, message: e.message } }, { status: e.status });
       throw e; // observe() turns anything else into 500 INTERNAL
     }

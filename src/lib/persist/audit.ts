@@ -10,6 +10,7 @@ export type AuditAction =
   | 'workspace.delete'
   | 'workspace.export'
   | 'member.upsert'
+  | 'member.invite'
   | 'member.remove'
   | 'project.create'
   | 'revision.confirm'

@@ -17,6 +17,9 @@ Production: https://multimodal-hackathon-sage.vercel.app (Vercel project `ohmni`
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Saved investigations, shared rate limits | `/api/v1/*` → 503 `PERSISTENCE_DISABLED`; shared limits off |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (public by design) | Browser sign-in | Saving hidden in the UI |
 | `RATE_SALT`, `RATE_SHARED`, `RATE_*_PER_MIN` | Limiter tuning | Safe defaults |
+| `QUOTA_EXTRACT_PER_DAY` (50), `QUOTA_EXPLAIN_PER_DAY` (200), `QUOTA_REVIEW_PER_DAY` (100) | Per signed-in user daily model quotas (429 `QUOTA_EXCEEDED`) | Defaults |
+| `INVITES_PER_WORKSPACE_PER_DAY` (20) | Workspace invitation cap (429 `INVITE_LIMIT`) | Default |
+| Supabase Auth custom SMTP (dashboard, owner action) | Invitation and magic-link email at beta volume | Built-in mailer: a few emails/hour, invites fail with 429 `INVITE_LIMIT` |
 
 ## Rollback (app)
 1. Vercel dashboard → Deployments → previous green production deployment → **Promote** (instant rollback; no rebuild).
@@ -47,7 +50,7 @@ Check runs with `select * from cron.job_run_details order by start_time desc lim
 ## Incidents
 | Symptom | First check | Mitigation |
 |---|---|---|
-| 429 `MODEL_BUDGET` / `RATE_LIMITED` spikes | Logs by `code`; provider dashboards | Raise `RATE_*` only if quota allows; abuse → Vercel firewall rule |
+| 429 `MODEL_BUDGET` / `RATE_LIMITED` / `QUOTA_EXCEEDED` spikes | Logs by `code`; provider dashboards | Raise `RATE_*` only if quota allows; abuse → Vercel firewall rule |
 | Extraction failing | `/api/health` providers; trace events in responses | Fallback provider is automatic; `VISION_PRIMARY` to switch order |
 | `/api/v1` 502 `DB_ERROR` / 503 | Supabase status page, project health | Shared limits fail open automatically; persistence can be disabled by unsetting `SUPABASE_*` (core analysis unaffected) |
 | Bad deploy | `postdeploy` red, `/api/health` build | Rollback above |
