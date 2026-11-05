@@ -20,6 +20,9 @@ describe('tierOf', () => {
     expect(tierOf('/studio')).toBe('experimental');
     expect(tierOf('/studios')).toBeNull();
     expect(tierOf('/')).toBeNull();
+    expect(tierOf('/api/v1/account/delete')).toBe('core');
+    expect(tierOf('/api/v1/workspaces')).toBe('experimental');
+    expect(tierOf('/privacy')).toBeNull();
   });
 
   it('parses disabled tiers; core can never be disabled', () => {

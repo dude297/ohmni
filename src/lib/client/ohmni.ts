@@ -3,6 +3,7 @@ import type * as P from '../persist';
 import type * as M from '../persist/members';
 import type { Report } from '../persist/report';
 import type * as A from '../persist/artifacts';
+import type * as L from '../persist/lifecycle';
 
 // Browser client for saved investigations (/api/v1/*). Sign-in uses Supabase Auth directly; all data goes through
 // the Ohmni API with the session's access token. Needs NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -56,6 +57,14 @@ export function createOhmniApi(getToken: () => Promise<string | null>, fetchImpl
     workspaces: {
       list: () => call<{ workspaces: Get<typeof P.listWorkspaces> }>('GET', '/workspaces'),
       create: (b: Body<'workspace'>) => call<{ workspace: Get<typeof P.createWorkspace> }>('POST', '/workspaces', b),
+      /** Full `ohmni.workspace-export.v1` JSON (owners/editors). */
+      export: (ws: string) => call<Get<typeof L.exportWorkspace>>('GET', `/workspaces/${id(ws)}/export`),
+      /** Permanent (owners); `confirm` must equal the workspace name exactly. */
+      delete: (ws: string, confirm: string) => call<Get<typeof L.deleteWorkspace>>('POST', `/workspaces/${id(ws)}/delete`, { confirm }),
+    },
+    account: {
+      /** Permanent; `confirm` = the account email. 409 LAST_OWNER `details` = blocking workspace names. */
+      delete: (confirm: string) => call<Get<typeof L.deleteAccount>>('POST', '/account/delete', { confirm }),
     },
     members: {
       list: (ws: string) => call<{ members: Get<typeof M.listMembers> }>('GET', `/workspaces/${id(ws)}/members`),
