@@ -24,6 +24,8 @@ import { CircuitView } from "./circuit-view";
 import { ProbeGuide } from "./probe-guide";
 import { MeasurementComparison } from "./measurement-comparison";
 import { SavePanel } from "./save-panel";
+import { ProvenanceReview } from "./provenance-review";
+import { openQuestions, questionKey } from "../../lib/topology/questions";
 import { readConsent, writeConsent } from "./lab-helpers";
 import type { Observation } from "../../lib/probe";
 import {
@@ -85,6 +87,7 @@ export function LabWorkspace() {
   const [route, setRoute] = useState<Route | null>(null);
   const [trace, setTrace] = useState<Trace[]>([]);
   const [acknowledged, setAcknowledged] = useState<string[]>([]);
+  const [answeredJunctions, setAnsweredJunctions] = useState<string[]>([]);
   const [json, setJson] = useState("");
   const [consentChoice, setAiConsent] = useState<boolean>();
   const storedConsent = useSyncExternalStore(noSubscribe, readConsent, () => false);
@@ -106,7 +109,9 @@ export function LabWorkspace() {
         ]
       : []),
   ];
+  const junctionQuestions = openQuestions(extraction?.junctionQuestions, graph, answeredJunctions);
   const reviewReady =
+    junctionQuestions.length === 0 &&
     graph !== null &&
     isGraph(graph) &&
     issues.every((_, i) => acknowledged.includes(String(i)));
@@ -251,6 +256,7 @@ export function LabWorkspace() {
     setRoute(null);
     setTrace([]);
     setAcknowledged([]);
+    setAnsweredJunctions([]);
     setMeasurement("");
     setJson("");
     setFileName(file.name);
@@ -525,6 +531,7 @@ export function LabWorkspace() {
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 {imageUrl && <details className="review-source"><summary>Review the original schematic</summary><img src={imageUrl} alt={`Original schematic: ${fileName}`} /><a href={imageUrl} target="_blank" rel="noopener noreferrer">Inspect original image ↗</a></details>}
+                {extraction && <ProvenanceReview imageUrl={imageUrl} graph={graph} selected={selected} onSelect={setSelected} questions={junctionQuestions} disabled={pending} onJoin={(q, next) => { editGraph(next); setAnsweredJunctions((a) => [...a, questionKey(q)]); }} onSeparate={(q) => setAnsweredJunctions((a) => [...a, questionKey(q)])} />}
                 <div className="diagram-toolbar">
                   <span>
                     {graph.components.length} COMPONENTS ·{" "}

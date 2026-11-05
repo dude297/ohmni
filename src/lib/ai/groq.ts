@@ -103,5 +103,11 @@ export async function extractWithGroq(image: Uint8Array, mimeType: string): Prom
     const w = r.failure === 'timeout' ? 'Extraction timed out; enter the circuit manually.' : 'Extraction failed; enter the circuit manually.';
     return { extraction: failed(w), event: r.event, failure: r.failure };
   }
-  return { extraction: toCandidateExtraction(r.raw), event: r.event };
+  const extraction = toCandidateExtraction(r.raw);
+  // ponytail: qwen3.8-27b returned boxes on 16/20 parts (2026-11-05) but a visual check on 02/08 showed them offset
+  // (near-identical boxes across different images), so they are dropped rather than shown as provenance.
+  // Gemini boxes matched the drawing on 08. Re-enable once boxes score on gold regions in scripts/bench-vision.mjs.
+  for (const c of extraction.graph?.components ?? []) delete c.sourceBoundingBox;
+  for (const q of extraction.junctionQuestions ?? []) delete q.region;
+  return { extraction, event: r.event };
 }
