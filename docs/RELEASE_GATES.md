@@ -8,7 +8,7 @@ Status: **MET** = evidence produced or pointed to below. **PARTIAL** = some of t
 
 | Stage | MET | PARTIAL | NOT MET | UNVERIFIED |
 |---|---|---|---|---|
-| Private alpha (5 gates, 9 rows) | 2 | 5 | 2 | 0 |
+| Private alpha (5 gates, 9 rows) | 3 | 4 | 2 | 0 |
 | Paid beta (4 gates + plan, 9 rows) | 2 | 3 | 3 | 1 |
 | General availability (4 gates, 9 rows) | 2 | 3 | 4 | 0 |
 
@@ -21,6 +21,7 @@ Verdict: **not ready for private alpha** on two counts: rollback has never been 
 | Unit/integration tests | `npm ci && npm test` on `c788689` | `Test Files 67 passed \| 1 skipped (68)`, `Tests 776 passed \| 7 expected fail \| 3 skipped (786)`. On `67317fe`: 758 passed / 7 expected fail / 3 skipped (768). |
 | Diagnosis benchmark, tuning seed | `BENCH=1 BENCH_LABEL=tune npx vitest run bench/run.test.ts` | seed 20261012; numbers in table below |
 | Diagnosis benchmark, held-out | `BENCH=1 BENCH_SEED=777 BENCH_LABEL=heldout npx vitest run bench/run.test.ts` | seed 777 (never used for tuning) |
+| Calibration + exact solver error (#120) | same three commands; the report now carries `summary.<set>.calibration` / `calibrationEquiv` and `solver.exact` | numbers in the tables below (re-run 2026-11-05 on `feat/bench-calibration-exact-solver`; diagnosis metrics identical to `c788689`) |
 | Held-out, ohmmeter mode | `BENCH=1 BENCH_SEED=777 BENCH_OHM=1 BENCH_LABEL=heldout-ohm npx vitest run bench/run.test.ts` | opt-in power-off resistance readings |
 | Post-deploy smoke vs prod | `SMOKE_TIMEOUT_S=30 node scripts/postdeploy-smoke.mjs https://multimodal-hackathon-sage.vercel.app c788689` | 7/7 PASS (health build, solve, bad JSON 400, probe R6 open, repair + server-judged verify incl. off-by-1 V rejected, `/api/v1/workspaces` 401, `/probe` core tier + headers). Same 7/7 at `67317fe` before #113 merged. Exit 0. |
 | Health | `curl /api/health` | `{"status":"ok","build":"c788689","visionPrimary":"groq","providers":{gemini flash-lite, groq qwen3.8-27b, jev-1.13-free all configured},"persistence":{"configured":true,"browserAuth":true}}` |
@@ -46,10 +47,24 @@ Verdict: **not ready for private alpha** on two counts: rollback has never been 
 | Mean readings, in-model | 1.73 | 1.74 | 4.38 | — |
 | Grounding corpus false-accepts (50 sentences: 28 accept / 22 reject) | 0 / 22 | 0 / 22 | 0 / 22 | 0 |
 | Grounding false-rejects | 0 / 28 | 0 / 28 | 0 / 28 | — |
-| Solver stress, 2000 random 6-node nets, 1 mΩ–1 TΩ, seed 4242: KCL violation > 1e-6 | 312, all flagged `ill_conditioned`; **silent 0** | same | same | warn on every ill-conditioned case |
-| Solver: R1 = 1e-12 Ω case | 11.2 % KCL violation, warnings `['ill_conditioned']` | | | |
+| Solver stress, 2000 random 6-node nets, 1 mΩ–1 TΩ, seed 4242: KCL violation of returned currents > 1e-6 | 270 (312 before the refinement fix), all flagged `ill_conditioned`; **silent 0** | same | same | warn on every ill-conditioned case |
+| Solver: R1 = 1e-12 Ω case | 6.2 % KCL violation (11.2 % before), warnings `['ill_conditioned']` | | | |
+| Solver node-voltage error vs exact rational MNA, 1000 random nets 1 mΩ–1 GΩ, 6-digit decimal values, seed 4242 | max relative error **2.8e-13**, 0 above 1e-6 (before fix: max 2.8e-6, 3 above 1e-6, 1 of them unflagged) | same | same | < 1e-6 |
+| Same, 1 mΩ–1 TΩ | max **2.4e-13**, 0 above 1e-6 (before fix: max 5.0e-4, 32 above 1e-6, 6 unflagged) | same | same | warn on every ill-conditioned case |
 
-Calibration (ECE / Brier / reliability bins) is **not computed** by the harness today (`grep -i ece bench/` finds nothing), despite PRODUCTION_PHASE1 section D listing it. There are **0 real cases** in the benchmark (`bench/cases/` does not exist; every number above is synthetic).
+### Calibration (top-1 probability; ECE = 10 equal-width bins; synthetic sessions only)
+
+Strict: p = probability of the top hypothesis, correct = exact fault id. Equivalence-class: p = summed probability of every modeled hypothesis that predicts every node within 2 meter sigma of the top one (x0.1 vs short etc.), correct = equivalence-aware top-1. Out-of-model: correct = `unmodeled` ranked first. Full reliability tables are in `bench/report/<label>.json`.
+
+| Set (n sessions) | Tuning 20261012 ECE / Brier | Held-out 777 ECE / Brier | Held-out + ohmmeter ECE / Brier |
+|---|---|---|---|
+| In-model, strict (n=900) | 0.046 / 0.130 | **0.059 / 0.133** | 0.019 / 0.014 |
+| In-model, equivalence-class (n=900) | 0.061 / 0.013 | **0.062 / 0.014** | 0.010 / 0.002 |
+| In-model + 5 % parts, strict (n=900) | 0.039 / 0.141 | 0.060 / 0.127 | 0.023 / 0.019 |
+| Nominal + 5 % parts (n=600) | 0.010 / 0.001 | 0.010 / 0.001 | 0.003 / 0.001 |
+| Out-of-model (n=4200) | 0.176 / 0.156 | **0.176 / 0.155** | 0.098 / 0.091 |
+
+Reading the bins: in-model strict is roughly diagonal (held-out 0.3-0.4 bin: conf 0.34, acc 0.39; 0.9-1.0: conf 0.98, acc 0.997); the in-model miscalibration is mostly *under*-confidence in 0.6-0.9 (held-out conf 0.64-0.87, acc 0.86-1.0). Out-of-model is *over*-confident: held-out 0.9-1.0 bin holds 2924/4200 sessions at conf 0.996, acc 0.911, and the 0.8-0.9 bin is right only 42 % of the time. There are **0 real cases** in the benchmark (`bench/cases/` does not exist; every number above is synthetic).
 
 ## Private alpha (invited engineers, no payment)
 
@@ -61,7 +76,7 @@ Calibration (ECE / Brier / reliability bins) is **not computed** by the harness 
 | Consent + privacy notice shipped; no image reaches a model without recorded consent | PARTIAL | `/privacy` 200 (#100); consent checkbox on every model-calling UI (#99, #110); server checks in `src/app/api/extract/route.ts:29`, `explain/route.ts:39`, `review/route.ts:48`; saved images record `ai_processing_consent` (`src/lib/persist/artifacts.ts:13,22`). | Not enforced server-side until `REQUIRE_AI_CONSENT=1` (above). Anonymous extracts are gated but consent is not *recorded* anywhere unless the image is saved; decide whether a log line/`model_traces` flag is enough. Privacy notice is a counsel-pending draft (acceptable for an invite-only alpha if disclosed). |
 | Benchmark: in-model top-1 ≥ 95 % with 5 % tolerance | MET | Held-out 98.00 % (n=900, + 5 % parts), 98.78 % (n=900, nominal parts). | Synthetic fixtures only (3 circuits). |
 | Benchmark: confident-wrong < 2 % in-model, < 5 % out-of-model | NOT MET | In-model 0.11 % (n=900) passes. Out-of-model **6.19 %** held-out (n=4200) in the default voltage-only mode; **3.93 %** with opt-in ohmmeter readings. bench/README.md documents a ≈ 4.6 % floor of faults that no voltage probe can distinguish. | Product decision: make ohmmeter mode the default for alpha (passes, costs ≈ 2.6 more power-off readings), or report electrically equivalent alternatives instead of one label, or formally relax the gate. |
-| Benchmark: solver error < 1e-6 for 1 mΩ–1 GΩ, warning on every ill-conditioned case; grounding false-accepts 0 | PARTIAL | Warning half MET: 312/2000 random 1 mΩ–1 TΩ nets exceed 1e-6 KCL violation, 0 silent; 1e-12 Ω case flagged. All-1 GΩ divider exact to 1e-9 (`solver-conditioning.test.ts:39`). Grounding 0/22 false-accepts. | The harness measures KCL residual over 1 mΩ–1 TΩ, not *relative error vs an exact rational solver over 1 mΩ–1 GΩ* as the gate states. The original audit measured 4e-7 for voltages, but that is not a repeatable test. Add an exact-rational comparison to `bench/solver-stress.ts` (engineering, ~1 h). |
+| Benchmark: solver error < 1e-6 for 1 mΩ–1 GΩ, warning on every ill-conditioned case; grounding false-accepts 0 | MET | Exact BigInt-rational MNA reference (`bench/exact-solver.ts`, `exactStress` in `bench/solver-stress.ts`): 1000 random nets 1 mΩ–1 GΩ, max node-voltage relative error **2.8e-13**, 0 above 1e-6; 1000 nets 1 mΩ–1 TΩ, max 2.4e-13, 0 above 1e-6. Main before this PR failed it (max 2.8e-6, 3/1000 over 1e-6, 1 unflagged, e.g. a node reported above the 5 V supply); fixed by compensated-residual iterative refinement in `solve.ts`, regression test in `tests/circuit/solver-conditioning.test.ts`. KCL residual of returned currents: 270/2000 over 1e-6, all flagged, 0 silent; 1e-12 Ω case flagged. Grounding 0/22 false-accepts. | Warning is conservative: ~20 % of random 1 mΩ–1 GΩ nets are flagged `ill_conditioned` although their voltages are exact, because currents through mΩ parts between nearly equal node voltages are not (KCL check). Synthetic 6-node nets only. |
 | Production SHA verified by post-deploy smoke | MET | `postdeploy` workflow success on `c788689` and `67317fe`; my run 7/7 PASS (above). | — |
 | Rollback rehearsed once | NOT MET | Procedure exists (`docs/OPERATIONS.md:24-25`, Vercel Promote previous deployment); never rehearsed. | Owner: promote the previous green deployment, confirm `/api/health` build flips, run smoke, promote back. ~10 min. DB migrations are forward-only; note that a rollback after `db push` keeps the new schema. |
 
@@ -83,7 +98,7 @@ Calibration (ECE / Brier / reliability bins) is **not computed** by the harness 
 
 | Gate | Status | Evidence | What's left / owner action |
 |---|---|---|---|
-| Calibration holds on held-out real cases (ECE < 0.05) | NOT MET | No ECE in the harness; 0 real cases. | Add ECE/Brier/reliability bins to `bench/run.test.ts`; needs the real-case corpus first. |
+| Calibration holds on held-out real cases (ECE < 0.05) | NOT MET | ECE / Brier / reliability bins now in the harness (`src/lib/bench/calibration.ts`, tests `tests/bench/calibration-metrics.test.ts`). Synthetic held-out seed 777, voltage-only: in-model ECE 0.059 strict / 0.062 equivalence-class (n=900), out-of-model 0.176 (n=4200), all above 0.05. 0 real cases. | Run the same metrics on real resolved cases once they exist; out-of-model over-confidence (0.9-1.0 bin: conf 0.996, acc 0.911) is the part to fix. |
 | Documented supported-circuit envelope with refusal outside it | PARTIAL | Validator accepts only `resistor` and `dc_voltage`, ≤ 60 components, and refuses everything else (`validate.ts:9,19,53`); singular circuits throw `SolveError`; out-of-model faults get an `unmodeled` hypothesis / `fit: poor`. Limitations paragraph in PRODUCTION_PHASE1. | No single user-facing "supported circuits" page; out-of-model refusal is probabilistic (6.19 % confident-wrong). |
 | External security review / pen test; SOC 2 readiness if selling to companies | NOT MET | Internal agent reviews only (PRODUCTION_PHASE1 audit, PR #112). `.github/SECURITY.md` + private vulnerability reporting enabled. | Owner: commission an external pen test; SOC 2 plan only if selling to companies. Cheap wins now: enable Dependabot alerts + security updates, protect main. |
 | Backups with tested point-in-time restore; multi-region or RTO/RPO | NOT MET | `docs/OPERATIONS.md:37`: "Not yet restore-tested". Supabase plan / PITR unverified. No RTO/RPO stated. | Owner: Supabase Pro + PITR add-on, one restore drill into a scratch project, write RTO/RPO. |
@@ -104,4 +119,4 @@ Calibration (ECE / Brier / reliability bins) is **not computed** by the harness 
 7. **Plans before money**: Vercel Pro (Hobby forbids commercial use); Supabase Pro + PITR, then one restore drill and written RTO/RPO.
 8. **AI vendor terms**: move Gemini and Groq to paid no-training tiers (or build a per-workspace AI-off switch); collect prices so cost per analysis stops being unknown.
 9. **Legal**: counsel review of privacy/terms/subprocessors drafts, fill the terms placeholders (contact, governing law), DPA template, signed vendor DPAs.
-10. **Then the paid-beta data work**: ≥ 100 real resolved cases across ≥ 10 designs, ECE in the harness, SLO + uptime monitor, external pen test before GA, billing.
+10. **Then the paid-beta data work**: ≥ 100 real resolved cases across ≥ 10 designs, ECE < 0.05 on those real cases (harness computes it now), SLO + uptime monitor, external pen test before GA, billing.
