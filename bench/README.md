@@ -23,6 +23,16 @@ voltage by > 3 meter sigma at some node; the rest are faults no voltage probe ca
 Independent worst-node KCL imbalance of the returned currents / largest current. `silentOver1e6` = violations above 1e-6 with no
 `warnings: ['ill_conditioned']`. Also the audit's R1 = 1e-12 ohm case.
 
+## Calibration (`src/lib/bench/calibration.ts`)
+Per set, `calibration` (strict: top hypothesis probability vs exact id) and `calibrationEquiv` (probability mass of the top hypothesis's
+electrical-equivalence class vs equivalence-aware top-1): `ece` (10 equal-width bins), `brier`, and the non-empty reliability bins.
+Out-of-model sets count a session correct only when `unmodeled` ranks first.
+
+## Solver vs exact (`exact-solver.ts`, `exactStress`, 1000 nets per range, seed 4242)
+Same random topologies as solver stress, values rounded to 6 significant digits, node voltages compared with a BigInt-rational MNA
+solve of the identical system. `solver.exact.to1G` (1 mOhm - 1 GOhm) and `to1T` (1 mOhm - 1 TOhm): `worstRel` (per node, relative to
+the exact voltage), `over1e6`, `silentOver1e6` (no `ill_conditioned` warning).
+
 ## Out-of-model results (2026-10-14, every-node confirmation)
 Change: a conclusion now waits for every resistor-dependent node (cap 6), not 2 readings. Held-out = `BENCH_SEED=777`, never used for tuning.
 

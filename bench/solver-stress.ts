@@ -1,5 +1,6 @@
 import type { CircuitGraph } from '../src/lib/circuit/types';
 import { rng } from './calibration';
+import { solveExact, toNumber } from './exact-solver';
 
 // Random 5 V resistor networks with log-uniform resistances in [1 mOhm, 1 TOhm] (plus fixed extreme cases).
 // "violation" = independent worst-node KCL imbalance of the returned currents, relative to the largest current.
@@ -58,4 +59,31 @@ export function tinyR1(): CircuitGraph {
       { id: 'R2', kind: 'resistor', value: 1000, positiveNode: 'A', negativeNode: 'GND' },
     ],
   };
+}
+
+/** Node-voltage error of `solve` vs the exact rational MNA solution on random networks, values 6-significant-digit decimals log-uniform in
+ *  [1 mOhm, 10^hiExp Ohm]. rel = worst per-node |v - v_exact| / |v_exact| (strict: tiny node voltages count fully); norm = max|dv| / max|v_exact|. */
+export function exactStress(solve: SolverFn, hiExp: number, n = 1000, seed = 4242) {
+  const r = rng(seed);
+  let worstRel = 0, worstNorm = 0, over1e6 = 0, flaggedOver1e6 = 0, normOver1e6 = 0, flagged = 0, thrown = 0;
+  for (let i = 0; i < n; i++) {
+    const g0 = randomNet(r, -3, hiExp);
+    const g = { ...g0, components: g0.components.map((c) => (c.kind === 'resistor' ? { ...c, value: Number(c.value.toPrecision(6)) } : c)) };
+    let s: ReturnType<SolverFn>;
+    try { s = solve(g); } catch { thrown++; continue; }
+    const ex = solveExact(g);
+    const w = !!s.warnings?.includes('ill_conditioned');
+    if (w) flagged++;
+    let rel = 0, dmax = 0, vmax = 0;
+    for (const [node, q] of Object.entries(ex)) {
+      const ve = toNumber(q), d = Math.abs(s.voltages[node] - ve);
+      if (ve !== 0) rel = Math.max(rel, d / Math.abs(ve));
+      dmax = Math.max(dmax, d); vmax = Math.max(vmax, Math.abs(ve));
+    }
+    const norm = vmax > 0 ? dmax / vmax : 0;
+    worstRel = Math.max(worstRel, rel); worstNorm = Math.max(worstNorm, norm);
+    if (norm > 1e-6) normOver1e6++;
+    if (rel > 1e-6) { over1e6++; if (w) flaggedOver1e6++; }
+  }
+  return { cases: n, seed, range: `1e-3..1e${hiExp} ohm`, worstRel, worstNorm, over1e6, flaggedOver1e6, silentOver1e6: over1e6 - flaggedOver1e6, normOver1e6, flagged, thrown };
 }

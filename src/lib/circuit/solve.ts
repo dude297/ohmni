@@ -8,12 +8,12 @@ export class SolveError extends Error {}
 //  - dc_voltage: MNA convention: current flowing INTO the positive terminal, through the source, out of
 //    the negative terminal. A source delivering power to a load therefore reports a NEGATIVE current.
 // warnings/residual are only present when the numerical check failed: warnings ['ill_conditioned'] means the
-// KCL residual of the returned solution exceeds RESIDUAL_WARN (relative to the largest current), so treat results as approximate.
+// (compensated) KCL residual of the returned solution exceeds RESIDUAL_WARN (relative to the largest current), so treat results as approximate.
 export type DCSolution = { voltages: Record<string, number>; currents: Record<string, number>; warnings?: string[]; residual?: number };
 
 const PIVOT_EPS = 1e-13; // relative: pivot / (magnitude of its original row)
 const RESIDUAL_WARN = 1e-9;
-const REFINE_ABOVE = 1e-13; // well-conditioned systems are returned bit-for-bit from plain elimination
+const REFINE_ABOVE = 1e-13; // componentwise; below it the plain-elimination result is returned bit-for-bit
 
 // Gaussian elimination with scaled partial pivoting. Singular when no remaining pivot is meaningful relative to its own row.
 function lu(A0: number[][], b0: number[]): number[] {
@@ -89,7 +89,6 @@ export function solveDC(graph: CircuitGraph): DCSolution {
 
   const x0 = lu(A, b);
   if (x0.some((v) => !Number.isFinite(v))) throw new SolveError('non-finite solution');
-  const residual = (xv: number[]) => b.map((bi, r) => bi - A[r].reduce((acc, a, c) => acc + a * xv[c], 0));
 
   const build = (x: number[]) => {
     const voltages: Record<string, number> = { [graph.groundNode]: 0 };
@@ -101,36 +100,57 @@ export function solveDC(graph: CircuitGraph): DCSolution {
           ? (voltages[c.positiveNode] - voltages[c.negativeNode]) / c.value
           : x[nodes.length + sources.indexOf(c)];
     }
-    // Check what the caller actually receives: worst-node KCL imbalance of the returned currents, relative to the largest
-    // current (computing the currents from voltage differences loses digits that A*x hides), plus the source rows.
-    const net: Record<string, number> = {};
+    // Residual b - A*x of what the caller actually receives, computed branch-wise from the returned currents (not from the
+    // assembled A, whose stamped conductance sums already lost digits) with compensated (Neumaier) sums: node rows = minus the
+    // KCL imbalance, source rows = value - (V+ - V-). rel = worst node imbalance / largest current, or source-row error / largest voltage.
+    const sum = Array.from({ length: n }, () => [0, 0, 0]); // [sum, compensation, sum of |terms|]
+    const acc = (k: number | undefined, v: number) => {
+      if (k === undefined) return;
+      const a = sum[k], t = a[0] + v;
+      a[1] += Math.abs(a[0]) >= Math.abs(v) ? a[0] - t + v : v - t + a[0];
+      a[0] = t;
+      a[2] += Math.abs(v);
+    };
     for (const c of graph.components) {
-      net[c.positiveNode] = (net[c.positiveNode] ?? 0) + currents[c.id];
-      net[c.negativeNode] = (net[c.negativeNode] ?? 0) - currents[c.id];
+      const p = idx.get(c.positiveNode), q = idx.get(c.negativeNode);
+      acc(p, -currents[c.id]);
+      acc(q, currents[c.id]);
+      if (c.kind === 'dc_voltage') {
+        const k = nodes.length + sources.indexOf(c);
+        acc(k, c.value);
+        acc(k, -voltages[c.positiveNode]);
+        acc(k, voltages[c.negativeNode]);
+      }
     }
+    const r = sum.map(([t, e]) => t + e);
     const iMax = Math.max(...Object.values(currents).map(Math.abs), 0);
     const vMax = Math.max(...Object.values(voltages).map(Math.abs), 0);
-    const r = residual(x);
     const rel = Math.max(
-      iMax > 0 ? Math.max(0, ...nodes.map((nd) => Math.abs(net[nd] ?? 0))) / iMax : 0,
+      iMax > 0 ? Math.max(0, ...r.slice(0, nodes.length).map(Math.abs)) / iMax : 0,
       vMax > 0 ? Math.max(0, ...r.slice(nodes.length).map(Math.abs)) / vMax : 0,
     );
-    return { voltages, currents, rel };
+    const cw = Math.max(0, ...r.map((v, k) => (sum[k][2] > 0 ? Math.abs(v) / sum[k][2] : 0))); // per-row backward error
+    return { x, voltages, currents, rel, r, cw };
   };
 
   let out = build(x0);
-  if (out.rel > REFINE_ABOVE) {
-    // one step of iterative refinement (ponytail: re-factors instead of reusing LU; systems here are < 20 unknowns)
+  // Iterative refinement with the accurate residual above (ponytail: re-factors each step; validated graphs are small).
+  // Recovers full voltage precision whenever cond(A) * 2^-53 < 1, e.g. 1 mOhm next to 1 GOhm (bench/solver-stress.ts exactStress).
+  // Gated on the per-row (componentwise) residual, not rel: rel is relative to the largest current, so a node carrying only nA
+  // next to an amp-level branch can be off by 1e-6 at rel ~1e-12. Stops when the correction stops shrinking (divergence: cond(A) beyond double precision).
+  let prev = Infinity;
+  for (let step = 0; step < 3 && out.cw > REFINE_ABOVE; step++) {
+    let d: number[];
     try {
-      const d = lu(A, residual(x0));
-      const xr = x0.map((v, k) => v + d[k]);
-      if (xr.every(Number.isFinite)) {
-        const o2 = build(xr);
-        if (o2.rel <= out.rel) out = o2;
-      }
+      d = lu(A, out.r);
     } catch {
-      /* keep the unrefined solution */
+      break;
     }
+    const size = Math.max(...d.map(Math.abs));
+    const xr = out.x.map((v, k) => v + d[k]);
+    if (!(size < prev) || !xr.every(Number.isFinite)) break;
+    prev = size;
+    out = build(xr);
   }
   const { voltages, currents, rel } = out;
   return rel > RESIDUAL_WARN ? { voltages, currents, warnings: ['ill_conditioned'], residual: rel } : { voltages, currents };
