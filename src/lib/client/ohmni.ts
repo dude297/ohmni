@@ -4,6 +4,8 @@ import type * as M from '../persist/members';
 import type { Report } from '../persist/report';
 import type * as A from '../persist/artifacts';
 import type * as L from '../persist/lifecycle';
+import type * as Au from '../persist/audit';
+import type * as T from '../persist/traces';
 
 // Browser client for saved investigations (/api/v1/*). Sign-in uses Supabase Auth directly; all data goes through
 // the Ohmni API with the session's access token. Needs NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -61,6 +63,11 @@ export function createOhmniApi(getToken: () => Promise<string | null>, fetchImpl
       export: (ws: string) => call<Get<typeof L.exportWorkspace>>('GET', `/workspaces/${id(ws)}/export`),
       /** Permanent (owners); `confirm` must equal the workspace name exactly. */
       delete: (ws: string, confirm: string) => call<Get<typeof L.deleteWorkspace>>('POST', `/workspaces/${id(ws)}/delete`, { confirm }),
+      /** Owners only, newest first; pass the previous page's `nextBefore` as `before`. */
+      audit: (ws: string, before?: string, limit = 50) =>
+        call<Get<typeof Au.listAudit>>('GET', `/workspaces/${id(ws)}/audit?limit=${limit}${before ? `&before=${id(before)}` : ''}`),
+      /** Model calls/tokens per provider+model over `days` (members). */
+      usage: (ws: string, days = 30) => call<Get<typeof T.usageSummary>>('GET', `/workspaces/${id(ws)}/usage?days=${days}`),
     },
     account: {
       /** Permanent; `confirm` = the account email. 409 LAST_OWNER `details` = blocking workspace names. */
