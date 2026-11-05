@@ -157,6 +157,7 @@ export function parseResult(v: unknown): Result {
 export async function request(
   path: string,
   body: FormData | object,
+  extraHeaders?: Record<string, string>, // e.g. Authorization when a saved project is attached (workspace AI policy)
 ): Promise<unknown> {
   const controller = new AbortController();
   // Extraction can include primary vision, a fallback and one routing/verification pass.
@@ -166,10 +167,10 @@ export async function request(
     const response = await fetch(path, {
       method: "POST",
       body: body instanceof FormData ? body : JSON.stringify(body),
-      headers:
-        body instanceof FormData
-          ? undefined
-          : { "Content-Type": "application/json" },
+      headers: {
+        ...(body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...extraHeaders,
+      },
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -177,6 +178,8 @@ export async function request(
         const retry = Number(response.headers.get("Retry-After"));
         throw new Error(`Request limit reached.${Number.isFinite(retry) && retry > 0 ? ` Try again in ${Math.ceil(retry)} seconds.` : " Please wait before trying again."} Your circuit is preserved; manual review is still available.`);
       }
+      if (response.status === 403)
+        throw new Error("AI processing is turned off for this workspace by an owner. Use a sample or a manual graph, or pick another project.");
       if (response.status === 413)
         throw new Error("The image is too large. Choose a PNG, JPEG or WebP up to 5 MB.");
       if (response.status === 404 || response.status === 503)

@@ -7,16 +7,17 @@ import { ohmni, OhmniApiError, signInWithEmail, supabaseBrowser } from "../../li
 import type { Observation } from "../../lib/probe";
 import type { Graph } from "./api";
 import { measurementBodies } from "./lab-helpers";
+import { getProjectContext, setProjectContext } from "./project-context";
 
 type Source = "image_extraction" | "manual" | "fixture";
-type Opt = { id: string; name: string };
+type Opt = { id: string; name: string; ai_processing?: boolean };
 const NEW = "__new__";
 const FAULTS = [
   ["open", "Open"], ["short", "Short"], ["x10", "Value ~10x high"], ["x0.1", "Value ~10x low"],
   ["dead", "Dead source"], ["other", "Other (not modelled)"], ["no_fault_found", "No fault found"],
 ] as const;
 type FaultClass = (typeof FAULTS)[number][0];
-type Closed = { status: string; resolution: { fault_class: string; benchmark_consent: boolean; benchmark_eligible: boolean } | null };
+type Closed = { status: string; resolution: { fault_class: string; benchmark_consent: boolean; benchmark_eligible: boolean } | null; consentNote?: string };
 const noSubscribe = () => () => {};
 
 const describe = (e: unknown) =>
@@ -61,18 +62,29 @@ export function SavePanel({ graph, source, observations }: { graph: Graph; sourc
     ohmni.workspaces.list().then(({ workspaces }) => {
       const list = workspaces.flatMap((w) => (w.workspace ? [w.workspace as unknown as Opt] : []));
       setWorkspaces(list);
-      if (list[0]) pickWorkspace(list[0].id);
+      // Start from the project the lab is already working in (its AI calls carry that projectId), else the first.
+      const ctx = getProjectContext();
+      const start = list.find((w) => w.id === ctx?.workspaceId) ?? list[0];
+      if (start) pickWorkspace(start.id, ctx?.projectId);
     }, (e) => setError(describe(e)));
   }, [userId]);
 
-  function pickWorkspace(id: string) {
+  // The selected saved project becomes the lab's AI context (workspace AI switch applies to later AI calls).
+  useEffect(() => {
+    const w = workspaces.find((x) => x.id === ws);
+    const p = projects.find((x) => x.id === project);
+    if (w && p) setProjectContext({ projectId: p.id, workspaceId: w.id, label: `${w.name} / ${p.name}`, aiProcessing: w.ai_processing !== false });
+  }, [workspaces, ws, projects, project]);
+
+  function pickWorkspace(id: string, prefer?: string) {
     setWs(id);
     setProjects([]);
     setProject(NEW);
     if (id === NEW) return;
     ohmni.projects.list(id).then(({ projects }) => {
       setProjects(projects);
-      if (projects[0]) setProject(projects[0].id);
+      const start = projects.find((p) => p.id === prefer) ?? projects[0];
+      if (start) setProject(start.id);
     }, (e) => setError(describe(e)));
   }
 
@@ -159,7 +171,8 @@ export function SavePanel({ graph, source, observations }: { graph: Graph; sourc
               Investigation {closed.status}.{" "}
               {closed.resolution && (closed.resolution.benchmark_eligible
                 ? `Benchmark eligible: a server-side repair verification passed${closed.resolution.benchmark_consent ? "; you allowed its anonymised use." : ", but you did not allow its use, so it stays out."}`
-                : "Not benchmark eligible: no repair in this investigation was verified server-side, so this case is recorded but not used for the benchmark.")}
+                : "Not benchmark eligible: no repair of this exact fault was verified server-side, so this case is recorded but not used for the benchmark.")}
+              {closed.consentNote && <> {closed.consentNote}</>}
             </p>
           ) : (
             <form onSubmit={(e) => { e.preventDefault(); void close(); }}>
@@ -205,6 +218,7 @@ export function SavePanel({ graph, source, observations }: { graph: Graph; sourc
             </select>
             {ws === NEW && <input aria-label="New workspace name" required maxLength={120} value={wsName} disabled={busy} onChange={(e) => setWsName(e.target.value)} />}
           </div>
+          {workspaces.find((w) => w.id === ws)?.ai_processing === false && <p role="note">AI processing is off for this workspace: schematic reading, explanations and the mentor are refused for its projects. Saving and the deterministic tools still work.</p>}
           <label htmlFor="save-project">Project</label>
           <div className="save-row">
             <select id="save-project" value={project} disabled={busy} onChange={(e) => setProject(e.target.value)}>

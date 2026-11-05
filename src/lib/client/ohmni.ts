@@ -6,6 +6,7 @@ import type * as A from '../persist/artifacts';
 import type * as L from '../persist/lifecycle';
 import type * as Au from '../persist/audit';
 import type * as T from '../persist/traces';
+import type * as AP from '../persist/aiPolicy';
 
 // Browser client for saved investigations (/api/v1/*). Sign-in uses Supabase Auth directly; all data goes through
 // the Ohmni API with the session's access token. Needs NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -68,6 +69,8 @@ export function createOhmniApi(getToken: () => Promise<string | null>, fetchImpl
         call<Get<typeof Au.listAudit>>('GET', `/workspaces/${id(ws)}/audit?limit=${limit}${before ? `&before=${id(before)}` : ''}`),
       /** Model calls/tokens per provider+model over `days` (members). */
       usage: (ws: string, days = 30) => call<Get<typeof T.usageSummary>>('GET', `/workspaces/${id(ws)}/usage?days=${days}`),
+      /** Owners only: turn third-party AI processing on/off for the workspace. */
+      aiPolicy: (ws: string, aiProcessing: boolean) => call<Get<typeof AP.setAiPolicy>>('POST', `/workspaces/${id(ws)}/ai-policy`, { aiProcessing }),
     },
     account: {
       /** Permanent; `confirm` = the account email. 409 LAST_OWNER `details` = blocking workspace names. */

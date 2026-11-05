@@ -24,6 +24,7 @@ import { CircuitView } from "./circuit-view";
 import { ProbeGuide } from "./probe-guide";
 import { MeasurementComparison } from "./measurement-comparison";
 import { SavePanel } from "./save-panel";
+import { AI_OFF_NOTE, aiCallContext, ProjectContextPicker, useProjectContext } from "./project-context";
 import { ProvenanceReview } from "./provenance-review";
 import { openQuestions, questionKey } from "../../lib/topology/questions";
 import { AiConsent, useAiConsent } from "./ai-consent";
@@ -89,6 +90,8 @@ export function LabWorkspace() {
   const [answeredJunctions, setAnsweredJunctions] = useState<string[]>([]);
   const [json, setJson] = useState("");
   const [aiConsent] = useAiConsent();
+  const projectCtx = useProjectContext();
+  const aiOff = projectCtx?.aiProcessing === false; // workspace AI switch; the server enforces it too
   const [probeObs, setProbeObs] = useState<{ key: string; obs: Observation[] }>();
   const inputRef = useRef<HTMLInputElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
@@ -234,6 +237,11 @@ export function LabWorkspace() {
       if (inputRef.current) inputRef.current.value = "";
       return;
     }
+    if (aiOff) {
+      setError(AI_OFF_NOTE);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
     if (
       !["image/png", "image/jpeg", "image/webp"].includes(file.type) ||
       file.size > 5 * 1024 * 1024 ||
@@ -264,7 +272,9 @@ export function LabWorkspace() {
     body.append("image", file);
     body.append("aiConsent", "true");
     try {
-      const response = parseExtraction(await request("/api/extract", body));
+      const ctx = await aiCallContext(projectCtx);
+      if (ctx.projectId) body.append("projectId", ctx.projectId);
+      const response = parseExtraction(await request("/api/extract", body, ctx.headers));
       setExtraction(response.extraction);
       setRoute(response.route);
       setTrace(response.trace);
@@ -413,12 +423,13 @@ export function LabWorkspace() {
             />
             <p className="stage-intro">Choose a readable schematic, a prepared example, or a manual graph. You will review the connections before any calculation.</p>
             <AiConsent inline={false} what="my image is sent to third-party AI providers (Groq, Google Gemini) and a structured summary to BeatAPI (Jev)" note="Samples and manual graphs never use AI." />
-            <label className={`upload-zone ${pending || !aiConsent ? "disabled" : ""}`}>
+            <ProjectContextPicker />
+            <label className={`upload-zone ${pending || !aiConsent || aiOff ? "disabled" : ""}`}>
               <input
                 ref={inputRef}
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
-                disabled={pending || !aiConsent}
+                disabled={pending || !aiConsent || aiOff}
                 onChange={(e) => void upload(e.target.files?.[0])}
                 aria-label="Upload your schematic"
               />
@@ -436,7 +447,7 @@ export function LabWorkspace() {
             <div className="demo-image-picker">
               <span className="eyebrow">OR SEND A DEMO IMAGE</span>
               <p>These images use the real extraction endpoint. Model responses and limits apply.</p>
-              <div>{[{ id: "clear-divider", label: "Clear divider" }, { id: "ambiguous-junction", label: "Unclear junction" }, { id: "ambiguous-smudged", label: "Smudged value" }].map((demo) => <button key={demo.id} disabled={pending || !aiConsent} onClick={() => void loadDemoImage(demo.id)}><ScanLine size={13} />{demo.label}</button>)}</div>
+              <div>{[{ id: "clear-divider", label: "Clear divider" }, { id: "ambiguous-junction", label: "Unclear junction" }, { id: "ambiguous-smudged", label: "Smudged value" }].map((demo) => <button key={demo.id} disabled={pending || !aiConsent || aiOff} onClick={() => void loadDemoImage(demo.id)}><ScanLine size={13} />{demo.label}</button>)}</div>
             </div>
             {imageUrl ? (
               <div className="image-preview">

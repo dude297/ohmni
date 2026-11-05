@@ -63,22 +63,29 @@ async function one<R extends { data: unknown; error: { code?: string } | null }>
   return data as NonNullable<R['data']>;
 }
 
-async function requireEditor({ user, db }: Caller, workspaceId: string) {
+/** The caller's role (RLS read of their own membership row), or null when not a member. */
+async function roleIn({ user, db }: Caller, workspaceId: string): Promise<string | null> {
   const { data, error } = await db.from('workspace_members').select('role').eq('workspace_id', workspaceId).eq('user_id', user.id).maybeSingle();
   if (error) dbFail(error, 'check membership');
-  if (!data || data.role === 'viewer') throw new ApiError(403, 'FORBIDDEN', 'Editor access to this workspace is required.');
+  return (data?.role as string | undefined) ?? null;
+}
+
+async function requireEditor(c: Caller, workspaceId: string) {
+  const role = await roleIn(c, workspaceId);
+  if (!role || role === 'viewer') throw new ApiError(403, 'FORBIDDEN', 'Editor access to this workspace is required.');
+  return role;
 }
 
 // ---- workspaces / projects / revisions -------------------------------------------------------------------------
 
 export async function createWorkspace(c: Caller, b: z.infer<typeof schemas.workspace>) {
-  const ws = await one(c.db.from('workspaces').insert({ name: b.name, created_by: c.user.id }).select('id, name, created_at').single(), 'create workspace');
+  const ws = await one(c.db.from('workspaces').insert({ name: b.name, created_by: c.user.id }).select('id, name, ai_processing, created_at').single(), 'create workspace');
   await audit(c, { workspaceId: ws.id, action: 'workspace.create', targetType: 'workspace', targetId: ws.id });
   return ws;
 }
 
 export async function listWorkspaces(c: Caller) {
-  const { data, error } = await c.db.from('workspace_members').select('role, workspace:workspaces (id, name, created_at)').eq('user_id', c.user.id);
+  const { data, error } = await c.db.from('workspace_members').select('role, workspace:workspaces (id, name, ai_processing, created_at)').eq('user_id', c.user.id);
   if (error) dbFail(error, 'list workspaces');
   return data ?? [];
 }
@@ -221,6 +228,9 @@ export async function getInvestigation(c: Caller, id: string, opts: { ohmmeter?:
 
 type CloseBody = z.infer<typeof schemas.close>;
 
+/** Out-of-model and abstention labels are recorded but never benchmark gold: there is no verifiable repair to check. */
+const UNVERIFIABLE = new Set(['other', 'no_fault_found']);
+
 /** Validates a confirmed fault against the stored circuit and builds the case_resolutions row (pure; unit-tested). */
 export function caseResolution(
   inv: { id: string; workspace_id: string },
@@ -234,6 +244,7 @@ export function caseResolution(
   if (none && fault.componentId) throw new ApiError(422, 'INVALID_REQUEST', 'no_fault_found takes no componentId.');
   if (!none && !graph.components.some((x) => x.id === fault.componentId))
     throw new ApiError(422, 'UNKNOWN_COMPONENT', `Component "${fault.componentId ?? ''}" is not part of this circuit.`);
+  const eligible = passedVerificationId !== null && !UNVERIFIABLE.has(fault.faultClass);
   return {
     investigation_id: inv.id,
     workspace_id: inv.workspace_id,
@@ -241,21 +252,30 @@ export function caseResolution(
     fault_class: fault.faultClass,
     measured_ohms: fault.measuredOhms ?? null,
     benchmark_consent: consent,
-    benchmark_eligible: passedVerificationId !== null, // only a server-recomputed passing post-repair verification counts
-    verification_id: passedVerificationId,
+    // only a server-recomputed passing post-repair verification of the CONFIRMED fault's repair counts
+    benchmark_eligible: eligible,
+    verification_id: eligible ? passedVerificationId : null,
     resolved_by: userId,
   };
 }
 
-/** Latest passing server-side verification of any repair proposal in this investigation (RLS read), or null. */
-async function passedVerification(c: Caller, investigationId: string): Promise<string | null> {
-  const { data: props, error } = await c.db.from('repair_proposals').select('id').eq('investigation_id', investigationId);
+/**
+ * Latest passing server-side verification of a repair proposal for exactly the confirmed fault (RLS reads), or null.
+ * Probe hypothesis ids are `${componentId}:${faultClass}` (src/lib/probe), stored as hypotheses.hypothesis_key.
+ */
+export async function passedVerification(c: Caller, investigationId: string, fault: NonNullable<CloseBody['confirmedFault']>): Promise<string | null> {
+  if (UNVERIFIABLE.has(fault.faultClass) || !fault.componentId) return null;
+  const key = `${fault.componentId}:${fault.faultClass}`;
+  const { data: props, error } = await c.db.from('repair_proposals').select('id, hypothesis:hypotheses (hypothesis_key)').eq('investigation_id', investigationId);
   if (error) dbFail(error, 'load repair proposals');
-  if (!props?.length) return null;
+  const ids = ((props ?? []) as unknown as { id: string; hypothesis: { hypothesis_key: string } | null }[])
+    .filter((p) => p.hypothesis?.hypothesis_key === key)
+    .map((p) => p.id);
+  if (!ids.length) return null;
   const { data, error: e2 } = await c.db
     .from('verifications')
     .select('id')
-    .in('repair_proposal_id', props.map((p) => p.id))
+    .in('repair_proposal_id', ids)
     .eq('verified', true)
     .order('created_at', { ascending: false })
     .limit(1);
@@ -263,31 +283,53 @@ async function passedVerification(c: Caller, investigationId: string): Promise<s
   return (data?.[0]?.id as string | undefined) ?? null;
 }
 
+export const CONSENT_NOTE = 'Only workspace owners can grant benchmark consent; it was stored as false. An owner can grant it later.';
+
 export async function closeInvestigation(c: Caller, id: string, b: CloseBody) {
   if (b.confirmedFault && b.status !== 'resolved') throw new ApiError(422, 'INVALID_REQUEST', 'confirmedFault is only accepted when status is "resolved".');
-  const l = b.confirmedFault ? await load(c, id) : null;
-  const row = l && b.confirmedFault ? caseResolution(l.inv, l.graph, b.confirmedFault, !!b.benchmarkConsent, await passedVerification(c, id), c.user.id) : null;
-  // The RLS-scoped update proves editor access before anything is written with the service role.
-  const inv = await one(
-    c.db.from('investigations').update({ status: b.status, closed_at: new Date().toISOString() }).eq('id', id).eq('status', 'open').select('id, workspace_id, status, closed_at').maybeSingle(),
-    'open investigation',
-  );
-  let resolution = null;
-  if (row) {
-    // ponytail: not in one transaction with the close; if this insert fails the case is closed without a label (502).
-    resolution = await one(
-      adminDb().from('case_resolutions').insert(row).select('component_id, fault_class, measured_ohms, benchmark_consent, benchmark_eligible, verification_id, created_at').single(),
-      'store case resolution',
-    );
-  }
+  const l = await load(c, id); // RLS read: 404 for non-members
+  const role = await requireEditor(c, l.inv.workspace_id);
+  if (l.inv.status !== 'open') throw new ApiError(409, 'INVESTIGATION_CLOSED', 'This investigation is already closed.');
+  const consentRefused = !!b.benchmarkConsent && role !== 'owner';
+  const row = b.confirmedFault
+    ? caseResolution(l.inv, l.graph, b.confirmedFault, !!b.benchmarkConsent && !consentRefused, await passedVerification(c, id, b.confirmedFault), c.user.id)
+    : null;
+  // One transaction (SQL function, service role, after the editor check above): status and label commit together or not at all.
+  const { data, error } = await adminDb().rpc('close_investigation', { p_id: id, p_status: b.status, p_resolution: row });
+  if (error?.code === 'P0002') throw new ApiError(409, 'INVESTIGATION_CLOSED', 'This investigation is already closed.');
+  if (error || !data) dbFail(error, 'close investigation');
+  const out = data as {
+    investigation: { id: string; workspace_id: string; status: string; closed_at: string };
+    resolution: { fault_class: string; benchmark_eligible: boolean; benchmark_consent: boolean } | null;
+  };
+  const resolution = out.resolution;
   await audit(c, {
-    workspaceId: inv.workspace_id,
+    workspaceId: l.inv.workspace_id,
     action: 'investigation.close',
     targetType: 'investigation',
     targetId: id,
     metadata: { status: b.status, ...(resolution && { faultClass: resolution.fault_class, benchmarkEligible: resolution.benchmark_eligible, benchmarkConsent: resolution.benchmark_consent }) },
   });
-  return { ...inv, resolution };
+  return { ...out.investigation, resolution, ...(consentRefused && { consentNote: CONSENT_NOTE }) };
+}
+
+export const consentSchema = z.object({ consent: z.boolean() });
+
+/** Owners grant or withdraw benchmark consent for a resolved case. Withdrawal does not recall exports already made. */
+export async function setBenchmarkConsent(c: Caller, id: string, b: z.infer<typeof consentSchema>) {
+  const inv = await one(c.db.from('investigations').select('id, workspace_id').eq('id', id).maybeSingle(), 'investigation');
+  if ((await roleIn(c, inv.workspace_id)) !== 'owner') throw new ApiError(403, 'FORBIDDEN', 'Only workspace owners can grant or withdraw benchmark consent.');
+  const resolution = await one(
+    adminDb()
+      .from('case_resolutions')
+      .update({ benchmark_consent: b.consent })
+      .eq('investigation_id', id)
+      .select('component_id, fault_class, measured_ohms, benchmark_consent, benchmark_eligible, verification_id, created_at')
+      .maybeSingle(),
+    'case resolution',
+  );
+  await audit(c, { workspaceId: inv.workspace_id, action: 'resolution.consent', targetType: 'investigation', targetId: id, metadata: { consent: b.consent } });
+  return resolution;
 }
 
 // ---- evidence -> engine ------------------------------------------------------------------------------------------

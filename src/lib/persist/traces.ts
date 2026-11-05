@@ -16,9 +16,11 @@ export async function recordTraces(req: Request, projectId: unknown, route: stri
   if (!model.length) return;
   try {
     const c = await caller(req);
-    // RLS read proves membership of the project's workspace before the service role writes.
+    // RLS reads prove membership of the project's workspace, with editor or owner role, before the service role writes.
     const { data: project, error } = await c.db.from('projects').select('id, workspace_id').eq('id', projectId).maybeSingle();
     if (error || !project) return;
+    const { data: me, error: e1 } = await c.db.from('workspace_members').select('role').eq('workspace_id', project.workspace_id).eq('user_id', c.user.id).maybeSingle();
+    if (e1 || !me || me.role === 'viewer') return; // viewers do not write usage rows
     const requestId = requestIdFor(req);
     const { error: e2 } = await adminDb()
       .from('model_traces')

@@ -9,6 +9,7 @@ export type AuditAction =
   | 'workspace.create'
   | 'workspace.delete'
   | 'workspace.export'
+  | 'workspace.ai_policy'
   | 'member.upsert'
   | 'member.invite'
   | 'member.remove'
@@ -16,6 +17,7 @@ export type AuditAction =
   | 'revision.confirm'
   | 'investigation.open'
   | 'investigation.close'
+  | 'resolution.consent'
   | 'artifact.upload'
   | 'account.delete';
 
