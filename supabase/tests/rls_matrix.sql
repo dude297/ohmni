@@ -65,6 +65,10 @@ insert into workspace_members (workspace_id, user_id, role) values
   ('10000000-0000-4000-a000-000000000001', '00000000-0000-4000-a000-00000000000f', 'viewer');
 insert into hypotheses (id, workspace_id, investigation_id, revision_id, engine, engine_version, hypothesis_key, probability, fit, evidence_measurement_ids) values
   ('60000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', '40000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000001', 'probe', 'test', 'R6:open', 0.885, 'good', '{50000000-0000-4000-a000-000000000001}');
+insert into audit_events (id, workspace_id, actor_id, action, target_type, target_id) values
+  ('80000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', '00000000-0000-4000-a000-00000000000a', 'project.create', 'project', '20000000-0000-4000-a000-000000000001');
+insert into case_resolutions (investigation_id, workspace_id, component_id, fault_class, benchmark_consent, benchmark_eligible, resolved_by) values
+  ('40000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', 'R6', 'open', true, false, '00000000-0000-4000-a000-00000000000a');
 
 -- B: owns w2, sees nothing of w1, cannot write into it, cannot graft rows across tenants.
 select pg_temp.as_user('00000000-0000-4000-a000-00000000000b');
@@ -96,6 +100,11 @@ select pg_temp.expect_err('B cannot look up users by email', $q$select public.us
 select pg_temp.expect_err('B cannot list another workspace''s member emails', $q$select count(*) from public.workspace_member_list('10000000-0000-4000-a000-000000000001')$q$, array['42501']);
 select pg_temp.expect_err('B cannot call the shared rate limiter', $q$select public.rate_hit('x', 60, 1)$q$, array['42501']);
 select pg_temp.expect_err('B cannot read rate counters', 'select count(*) from private.rate_counters', array['42501']);
+select pg_temp.expect_count('B audit_events (non-member)', 'select count(*) from audit_events', 0);
+select pg_temp.expect_count('B case_resolutions', 'select count(*) from case_resolutions', 0);
+select pg_temp.expect_err('B cannot write audit events',
+  $q$insert into audit_events (workspace_id, actor_id, action, target_type) values ('10000000-0000-4000-a000-000000000002', '00000000-0000-4000-a000-00000000000b', 'x', 'x')$q$, array['42501']);
+select pg_temp.expect_err('B cannot run the retention purge', 'select public.purge_expired()', array['42501']);
 select pg_temp.expect_err('B cannot create a workspace as someone else',
   $q$insert into workspaces (name, created_by) values ('x', '00000000-0000-4000-a000-00000000000a')$q$, array['42501']);
 reset role;
@@ -108,6 +117,8 @@ select pg_temp.expect_count('V reads w1 hypotheses', 'select count(*) from hypot
 select pg_temp.expect_err('V cannot add a measurement',
   $q$insert into measurements (workspace_id, investigation_id, revision_id, node, value, unit, method, entered_by) values ('10000000-0000-4000-a000-000000000001', '40000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000001', 'B', 1, 'V', 'typed', '00000000-0000-4000-a000-00000000000f')$q$, array['42501']);
 select pg_temp.expect_rows('V cannot update project', $q$update projects set name = 'v'$q$, 0);
+select pg_temp.expect_count('V (viewer) reads no audit events: owners only', 'select count(*) from audit_events', 0);
+select pg_temp.expect_count('V reads w1 case resolution', 'select count(*) from case_resolutions', 1);
 reset role;
 
 -- E (editor): adds own evidence, cannot impersonate or write engine output.
@@ -121,6 +132,9 @@ select pg_temp.expect_err('E cannot store NaN', $q$insert into measurements (wor
 select pg_temp.expect_err('E cannot write repair proposals',
   $q$insert into repair_proposals (workspace_id, investigation_id, revision_id, hypothesis_id, patch, predicted_before, predicted_after, verification_node, expect_value, tolerance) values ('10000000-0000-4000-a000-000000000001', '40000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000001', '60000000-0000-4000-a000-000000000001', '{}', '{}', '{}', 'B', 5, 0.1)$q$, array['42501']);
 select pg_temp.expect_count('E sees both w1 measurements', 'select count(*) from measurements', 2);
+select pg_temp.expect_err('E cannot label a case directly',
+  $q$update case_resolutions set benchmark_eligible = true$q$, array['42501']);
+select pg_temp.expect_err('E cannot insert audit events', $q$insert into audit_events (action, target_type) values ('x', 'x')$q$, array['42501']);
 reset role;
 
 -- anon: no privileges on any table.
@@ -145,9 +159,16 @@ select pg_temp.expect_rows('outsider cannot delete the workspace', $q$delete fro
 reset role;
 select pg_temp.as_user('00000000-0000-4000-a000-00000000000a');
 set local role authenticated;
+select pg_temp.expect_count('A (owner) reads w1 audit events', 'select count(*) from audit_events', 1);
+select pg_temp.expect_err('audit events are append-only (update)', $q$update audit_events set action = 'x'$q$, array['42501']);
+select pg_temp.expect_err('audit events are append-only (delete)', $q$delete from audit_events$q$, array['42501']);
 select pg_temp.expect_rows('owner deletes the workspace via RLS', $q$delete from workspaces where id = '10000000-0000-4000-a000-000000000001'$q$, 1);
 reset role;
 select pg_temp.expect_count('workspace delete cascades', $q$select (select count(*) from projects where workspace_id = '10000000-0000-4000-a000-000000000001') + (select count(*) from measurements where workspace_id = '10000000-0000-4000-a000-000000000001') + (select count(*) from verifications where workspace_id = '10000000-0000-4000-a000-000000000001')$q$, 0);
+
+select pg_temp.expect_count('audit trail outlives the workspace (workspace_id set null)', $q$select count(*) from audit_events where id = '80000000-0000-4000-a000-000000000001' and workspace_id is null$q$, 1);
+select pg_temp.expect_count('workspace delete cascades case resolutions', $q$select count(*) from case_resolutions where workspace_id = '10000000-0000-4000-a000-000000000001'$q$, 0);
+select pg_temp.expect_count('purge keeps fresh audit events', $q$select (public.purge_expired()->>'audit_events')::bigint$q$, 0);
 
 select 'RLS MATRIX: ALL PASS' as result;
 rollback;
