@@ -10,7 +10,7 @@ Status: **MET** = evidence produced or pointed to below. **PARTIAL** = some of t
 |---|---|---|---|---|
 | Private alpha (5 gates, 9 rows) | 2 | 5 | 2 | 0 |
 | Paid beta (4 gates + plan, 9 rows) | 2 | 3 | 3 | 1 |
-| General availability (4 gates, 9 rows) | 1 | 4 | 4 | 0 |
+| General availability (4 gates, 9 rows) | 2 | 3 | 4 | 0 |
 
 Verdict: **not ready for private alpha** on two counts: rollback has never been rehearsed, and out-of-model confident-wrong is 6.19 % (target < 5 %) in the default voltage-only mode. Both are cheap to close or to accept explicitly. Paid beta and GA are mostly owner and vendor actions (plans, contracts, counsel, real cases), not code.
 
