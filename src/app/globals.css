@@ -2424,3 +2424,5 @@ input[type="checkbox"] {
   .review-source { margin: 18px 18px 0; }
   .lab-title { flex-wrap: wrap; }
 }
+.ai-consent{display:flex;gap:10px;align-items:flex-start;margin:18px 28px 0;padding:10px 12px;font-size:12px;line-height:1.55;color:#33443c;background:#f4f7ee;border:1px solid #bfcec3;border-radius:6px}.ai-consent input{margin-top:3px;flex-shrink:0}.ai-consent a{text-decoration:underline}
+.save-panel{margin:16px 0;padding:16px;background:#f7f8f3;border:1px solid #bfcec3;border-radius:10px;font-size:12px;display:grid;gap:8px}.save-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.save-head h3{margin:0;font-size:15px;flex:1}.save-panel form{display:grid;gap:6px}.save-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.save-row input,.save-row select{min-height:34px;padding:6px 8px;border:1px solid #bfcec3;border-radius:5px;background:#fff;flex:1;min-width:140px}.save-panel code{overflow-wrap:anywhere}.save-who{color:#52635b;margin:0}

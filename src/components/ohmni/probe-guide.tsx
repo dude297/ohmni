@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, CircleAlert, Crosshair, LoaderCircle, X } from "lucide-react";
 import type { Observation, ProbeStep } from "../../lib/probe";
 import { isTrace, request, type Graph, type Trace } from "./api";
+import { FIT_CAUTION, fitCaution } from "./lab-helpers";
 
 type Result = ProbeStep & { trace: Trace[] };
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -20,7 +21,7 @@ function parseStep(value: unknown, nodes: string[]): Result {
   return r as Result;
 }
 
-export function ProbeGuide({ graph, initialVoltage, onTarget }: { graph: Graph; initialVoltage: number; onTarget: (node: string | undefined) => void }) {
+export function ProbeGuide({ graph, initialVoltage, onTarget, onObservations }: { graph: Graph; initialVoltage: number; onTarget: (node: string | undefined) => void; onObservations?: (o: Observation[]) => void }) {
   const [observations, setObservations] = useState<Observation[]>([{ node: graph.measureNode, volts: initialVoltage }]);
   const [step, setStep] = useState<Result | null>(null);
   const [reading, setReading] = useState("");
@@ -39,6 +40,7 @@ export function ProbeGuide({ graph, initialVoltage, onTarget }: { graph: Graph; 
       const result = parseStep(await request("/api/probe", { graph, userConfirmed: true, observations: next }), nodes);
       if (!active.current) return;
       setObservations(next);
+      onObservations?.(next);
       setStep(result);
       setReading("");
       onTarget(result.next?.node);
@@ -54,8 +56,8 @@ export function ProbeGuide({ graph, initialVoltage, onTarget }: { graph: Graph; 
     {error && <p className="probe-error" role="alert">{error} Your previous reading history is preserved.</p>}
     {step && <>
       <div className="probe-history" aria-label="Investigation readings">{observations.map((o, i) => <button key={`${o.node}-${i}`} disabled={pending} aria-label={`Remove reading ${o.node} ${o.volts} volts`} onClick={() => void update(observations.filter((_, index) => index !== i))}>{o.node} = {o.volts} V <X size={12} /></button>)}{!observations.length && <span>No observations yet.</span>}</div>
-      {step.fitWarning && <p className="probe-warning" role="alert"><CircleAlert size={16} />{step.fitWarning}</p>}
-      {step.next ? <div className="next-probe"><span className="eyebrow">NEXT MEASUREMENT</span><h4>Measure <strong>{step.next.node}</strong></h4><p>{step.next.instruction}</p><details className="probe-outcomes"><summary>Why this node? {step.next.expectedBits.toFixed(2)} estimated bits</summary><p>Predictions under the modeled faults, not actual instrument readings:</p>{step.next.outcomes.map((outcome, i) => <div key={i}><strong>≈ {outcome.volts.toFixed(3)} V</strong><span>{outcome.hypothesisIds.map(id => step.hypotheses.find(h => h.id === id)?.title ?? id).join(" / ")}</span></div>)}</details><form onSubmit={(e) => { e.preventDefault(); if (step.next && reading.trim() && Number.isFinite(Number(reading))) void update([...observations, { node: step.next.node, volts: Number(reading) }]); }}><label htmlFor="probe-reading">Your measured {step.next.node} (V)</label><div><input id="probe-reading" type="number" step="any" value={reading} disabled={pending} onChange={(e) => setReading(e.target.value)} placeholder="Enter your meter reading" /><button type="submit" disabled={pending || !reading.trim() || !Number.isFinite(Number(reading))}>{pending ? <LoaderCircle size={15} className="spinner" /> : <ArrowRight size={15} />} Update investigation</button></div></form></div> : step.fitWarning ? <div className="probe-conclusion"><span className="eyebrow">MORE EVIDENCE NEEDED</span><p>The current readings do not fit the modeled faults. Recheck the diagram and measurements before drawing a conclusion.</p></div> : <div className="probe-conclusion"><span className="eyebrow">MODEL RESULT · VERIFY PHYSICALLY</span><p>{step.reason}</p></div>}
+      {(fitCaution(step) || step.fitWarning) && <p className="probe-warning" role="alert"><CircleAlert size={16} /><span>{fitCaution(step) && <strong>{FIT_CAUTION} </strong>}{step.fitWarning}</span></p>}
+      {step.next ? <div className="next-probe"><span className="eyebrow">NEXT MEASUREMENT</span><h4>Measure <strong>{step.next.node}</strong></h4><p>{step.next.instruction}</p><details className="probe-outcomes"><summary>Why this node? {step.next.expectedBits.toFixed(2)} estimated bits</summary><p>Predictions under the modeled faults, not actual instrument readings:</p>{step.next.outcomes.map((outcome, i) => <div key={i}><strong>≈ {outcome.volts.toFixed(3)} V</strong><span>{outcome.hypothesisIds.map(id => step.hypotheses.find(h => h.id === id)?.title ?? id).join(" / ")}</span></div>)}</details><form onSubmit={(e) => { e.preventDefault(); if (step.next && reading.trim() && Number.isFinite(Number(reading))) void update([...observations, { node: step.next.node, volts: Number(reading) }]); }}><label htmlFor="probe-reading">Your measured {step.next.node} (V)</label><div><input id="probe-reading" type="number" step="any" value={reading} disabled={pending} onChange={(e) => setReading(e.target.value)} placeholder="Enter your meter reading" /><button type="submit" disabled={pending || !reading.trim() || !Number.isFinite(Number(reading))}>{pending ? <LoaderCircle size={15} className="spinner" /> : <ArrowRight size={15} />} Update investigation</button></div></form></div> : step.fitWarning || fitCaution(step) ? <div className="probe-conclusion"><span className="eyebrow">MORE EVIDENCE NEEDED</span><p>The current readings do not fit the modeled faults. Recheck the diagram and measurements before drawing a conclusion.</p></div> : <div className="probe-conclusion"><span className="eyebrow">MODEL RESULT · VERIFY PHYSICALLY</span><p>{step.reason}</p></div>}
       <div className="probe-hypotheses"><strong>Remaining modeled possibilities</strong>{step.hypotheses.slice(0, 5).map(h => <div key={h.id}><span>{h.title}</span><div><meter min="0" max="1" value={h.probability} aria-label={`${h.title}: model-relative probability`} /><small>{(h.probability * 100).toFixed(1)}%</small></div></div>)}</div>
       <p className="probe-limits">Model-relative probabilities use assumed priors and a single-fault model. They are not calibrated physical confidence or proof of a fault.</p>
       <p className="probe-safety">{step.safety}</p>
