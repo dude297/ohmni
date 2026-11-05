@@ -1,0 +1,21 @@
+name: uptime
+# Synthetic monitor: every 30 min, run the post-deploy smoke against production (no model calls, no secrets).
+# Fails if prod is down, a core canary breaks, or prod drifts from main HEAD. GitHub emails the owner on failure.
+# ponytail: GitHub cron can lag ~15 min and is paused after 60 days without repo activity; add a real uptime service before beta.
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+concurrency: { group: uptime, cancel-in-progress: false }
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version-file: .nvmrc }
+      - run: node scripts/postdeploy-smoke.mjs https://multimodal-hackathon-sage.vercel.app ${{ github.sha }}
