@@ -16,6 +16,7 @@ export type AuditAction =
   | 'revision.confirm'
   | 'investigation.open'
   | 'investigation.close'
+  | 'resolution.consent'
   | 'artifact.upload'
   | 'account.delete';
 
