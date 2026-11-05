@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -23,6 +23,9 @@ import { Brand } from "./brand";
 import { CircuitView } from "./circuit-view";
 import { ProbeGuide } from "./probe-guide";
 import { MeasurementComparison } from "./measurement-comparison";
+import { SavePanel } from "./save-panel";
+import { readConsent, writeConsent } from "./lab-helpers";
+import type { Observation } from "../../lib/probe";
 import {
   Extraction,
   Graph,
@@ -43,6 +46,7 @@ type Mode = "empty" | "sample" | "manual" | "upload";
 type Phase = "review" | "extracting" | "solving";
 type Stage = "capture" | "review" | "compare" | "investigate";
 const stages: Stage[] = ["capture", "review", "compare", "investigate"];
+const noSubscribe = () => () => {};
 
 export function LabWorkspace() {
   const params = useSearchParams();
@@ -82,6 +86,10 @@ export function LabWorkspace() {
   const [trace, setTrace] = useState<Trace[]>([]);
   const [acknowledged, setAcknowledged] = useState<string[]>([]);
   const [json, setJson] = useState("");
+  const [consentChoice, setAiConsent] = useState<boolean>();
+  const storedConsent = useSyncExternalStore(noSubscribe, readConsent, () => false);
+  const aiConsent = consentChoice ?? storedConsent;
+  const [probeObs, setProbeObs] = useState<{ key: string; obs: Observation[] }>();
   const inputRef = useRef<HTMLInputElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
   const investigationStatusRef = useRef<HTMLDivElement>(null);
@@ -219,6 +227,11 @@ export function LabWorkspace() {
   }
   async function upload(file?: File) {
     if (!file) return;
+    if (!aiConsent) {
+      setError("Tick the AI processing consent box before sending an image.");
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
     if (
       !["image/png", "image/jpeg", "image/webp"].includes(file.type) ||
       file.size > 5 * 1024 * 1024 ||
@@ -246,6 +259,7 @@ export function LabWorkspace() {
     setPhase("extracting");
     const body = new FormData();
     body.append("image", file);
+    body.append("aiConsent", "true");
     try {
       const response = parseExtraction(await request("/api/extract", body));
       setExtraction(response.extraction);
@@ -395,12 +409,16 @@ export function LabWorkspace() {
               subtitle="Upload a schematic to analyze its connections, or try a sample to see how Ohmni works."
             />
             <p className="stage-intro">Choose a readable schematic, a prepared example, or a manual graph. You will review the connections before any calculation.</p>
-            <label className={`upload-zone ${pending ? "disabled" : ""}`}>
+            <label className="ai-consent">
+              <input type="checkbox" checked={aiConsent} onChange={(e) => { setAiConsent(e.target.checked); writeConsent(e.target.checked); }} />
+              <span>I agree that my image is sent to third-party AI providers (Groq, Google Gemini) and a structured summary to BeatAPI (Jev), on free tiers whose terms may allow training on it. Samples and manual graphs never use AI. <Link href="/privacy">Privacy</Link></span>
+            </label>
+            <label className={`upload-zone ${pending || !aiConsent ? "disabled" : ""}`}>
               <input
                 ref={inputRef}
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
-                disabled={pending}
+                disabled={pending || !aiConsent}
                 onChange={(e) => void upload(e.target.files?.[0])}
                 aria-label="Upload your schematic"
               />
@@ -418,7 +436,7 @@ export function LabWorkspace() {
             <div className="demo-image-picker">
               <span className="eyebrow">OR SEND A DEMO IMAGE</span>
               <p>These images use the real extraction endpoint. Model responses and limits apply.</p>
-              <div>{[{ id: "clear-divider", label: "Clear divider" }, { id: "ambiguous-junction", label: "Unclear junction" }, { id: "ambiguous-smudged", label: "Smudged value" }].map((demo) => <button key={demo.id} disabled={pending} onClick={() => void loadDemoImage(demo.id)}><ScanLine size={13} />{demo.label}</button>)}</div>
+              <div>{[{ id: "clear-divider", label: "Clear divider" }, { id: "ambiguous-junction", label: "Unclear junction" }, { id: "ambiguous-smudged", label: "Smudged value" }].map((demo) => <button key={demo.id} disabled={pending || !aiConsent} onClick={() => void loadDemoImage(demo.id)}><ScanLine size={13} />{demo.label}</button>)}</div>
             </div>
             {imageUrl ? (
               <div className="image-preview">
@@ -969,8 +987,9 @@ export function LabWorkspace() {
                       negative terminal in the graph.
                     </p>
                   </details>
-                  {useBackend && mismatch && graph && measured !== undefined && Number.isFinite(measured) && <div className={`living-probe-scene ${sampleKind === "advanced" ? "has-circuit" : ""}`}>{sampleKind === "advanced" && <CircuitView graph={graph} result={result} highlightedNode={probeTarget} selected={selected} onSelect={setSelected}/>}<ProbeGuide key={JSON.stringify(graph) + measured} graph={graph} initialVoltage={measured} onTarget={setProbeTarget} /></div>}
+                  {useBackend && mismatch && graph && measured !== undefined && Number.isFinite(measured) && <div className={`living-probe-scene ${sampleKind === "advanced" ? "has-circuit" : ""}`}>{sampleKind === "advanced" && <CircuitView graph={graph} result={result} highlightedNode={probeTarget} selected={selected} onSelect={setSelected}/>}<ProbeGuide key={JSON.stringify(graph) + measured} graph={graph} initialVoltage={measured} onTarget={setProbeTarget} onObservations={(obs) => setProbeObs({ key: JSON.stringify(graph) + measured, obs })} /></div>}
                   <button className="evidence-export" onClick={exportEvidence}><Download size={15} /> Download investigation evidence</button>
+                  {confirmed && graph && <SavePanel graph={graph} source={mode === "upload" && imageUrl ? "image_extraction" : mode === "sample" ? "fixture" : "manual"} observations={probeObs?.key === JSON.stringify(graph) + measured ? probeObs.obs : measured !== undefined && Number.isFinite(measured) ? [{ node: graph.measureNode, volts: measured }] : []} />}
               </>}
             </div>
             <div className="stage-actions"><button className="button secondary small" disabled={pending} onClick={() => goTo("compare")}><ArrowLeft size={16} /> Back</button><button className="button secondary small" disabled={pending} onClick={() => goTo("review")}>Review circuit <ArrowRight size={16} /></button></div>

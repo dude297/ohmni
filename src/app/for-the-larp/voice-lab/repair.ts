@@ -22,12 +22,14 @@ export type RepairProposal = {
   verification: Verification;
   actions: string[];
   status: "hypothesized";
+  revisionId?: string; // copied from the /api/repair result; verify sends it back (409 if the graph changed)
 };
 export type RepairResult = {
   proposals: RepairProposal[];
   basis: { topHypothesisId: string; topProbability: number; done: boolean };
   safety?: string;
   trace?: unknown;
+  revisionId?: string;
 };
 export type VerifyResult = { verified: boolean; status: "verified" | "not_verified"; delta: number; message: string };
 
@@ -60,14 +62,14 @@ export async function fetchRepair(f: Fetch, graph: CircuitGraph, observations: O
   const r = await post<RepairResult>(f, "/api/repair", { graph, userConfirmed: true, observations });
   return {
     ...r,
-    proposals: (Array.isArray(r.proposals) ? r.proposals : []).filter(validProposal).map((p) => ({ ...p, actions: Array.isArray(p.actions) ? p.actions : [] })),
+    proposals: (Array.isArray(r.proposals) ? r.proposals : []).filter(validProposal).map((p) => ({ ...p, revisionId: r.revisionId, actions: Array.isArray(p.actions) ? p.actions : [] })),
     basis: r.basis ?? { topHypothesisId: "", topProbability: 0, done: false },
   };
 }
 
 export async function verifyRepair(f: Fetch, graph: CircuitGraph, p: RepairProposal, measured: { node: string; volts: number }): Promise<VerifyResult> {
   return post<VerifyResult>(f, "/api/repair/verify", {
-    graph, userConfirmed: true, proposal: { hypothesisId: p.hypothesisId, verification: p.verification }, measured,
+    graph, userConfirmed: true, proposal: { hypothesisId: p.hypothesisId, verification: p.verification }, measured, revisionId: p.revisionId,
   });
 }
 

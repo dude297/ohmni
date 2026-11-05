@@ -30,6 +30,7 @@ export function BuildClient() {
   const [readings, setReadings] = useState<Reading[]>([]);
   const [probe, setProbe] = useState<Probe | null>(null);
   const [proposal, setProposal] = useState<RepairProposal | null>(null);
+  const [revisionId, setRevisionId] = useState<string>();
   const [approved, setApproved] = useState(false);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [vMeasured, setVMeasured] = useState<number | undefined>();
@@ -73,6 +74,7 @@ export function BuildClient() {
       if (p.done || p.hypotheses[0]?.probability >= 0.5) {
         const r = await post("/api/repair", { graph: GRAPH, userConfirmed: true, observations });
         setProposal(r.proposals[0] ?? null);
+        setRevisionId(r.revisionId);
       } else setProposal(null);
     });
 
@@ -86,6 +88,7 @@ export function BuildClient() {
         userConfirmed: true,
         proposal: { hypothesisId: proposal.hypothesisId, verification: proposal.verification },
         measured: { node: proposal.verification.node, volts: v },
+        revisionId,
       });
       setVMeasured(v);
       setVerdict(r);
