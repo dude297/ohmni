@@ -72,13 +72,13 @@ async function requireEditor({ user, db }: Caller, workspaceId: string) {
 // ---- workspaces / projects / revisions -------------------------------------------------------------------------
 
 export async function createWorkspace(c: Caller, b: z.infer<typeof schemas.workspace>) {
-  const ws = await one(c.db.from('workspaces').insert({ name: b.name, created_by: c.user.id }).select('id, name, created_at').single(), 'create workspace');
+  const ws = await one(c.db.from('workspaces').insert({ name: b.name, created_by: c.user.id }).select('id, name, ai_processing, created_at').single(), 'create workspace');
   await audit(c, { workspaceId: ws.id, action: 'workspace.create', targetType: 'workspace', targetId: ws.id });
   return ws;
 }
 
 export async function listWorkspaces(c: Caller) {
-  const { data, error } = await c.db.from('workspace_members').select('role, workspace:workspaces (id, name, created_at)').eq('user_id', c.user.id);
+  const { data, error } = await c.db.from('workspace_members').select('role, workspace:workspaces (id, name, ai_processing, created_at)').eq('user_id', c.user.id);
   if (error) dbFail(error, 'list workspaces');
   return data ?? [];
 }

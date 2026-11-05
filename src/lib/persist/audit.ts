@@ -9,6 +9,7 @@ export type AuditAction =
   | 'workspace.create'
   | 'workspace.delete'
   | 'workspace.export'
+  | 'workspace.ai_policy'
   | 'member.upsert'
   | 'member.invite'
   | 'member.remove'

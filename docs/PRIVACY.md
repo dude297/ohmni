@@ -44,3 +44,11 @@ Set `REQUIRE_AI_CONSENT=1` on the server to require explicit consent before any 
 - Missing or anything else → `422 { error: { code: "CONSENT_REQUIRED", message } }`, and no provider is called.
 
 Unset (default) keeps the previous behaviour so the deployed UI keeps working until it sends the flag. Turn it on only after the UI ships the consent checkbox.
+
+## Workspace AI switch (saved work)
+
+Two layers, by context:
+
+- **Anonymous or unsaved use** carries no workspace: it is governed by the per-request consent checkbox above.
+- **Saved workspaces** have `ai_processing` (default on). An **owner** can turn it off (`/account`, or `POST /api/v1/workspaces/:id/ai-policy { "aiProcessing": false }`, audited as `workspace.ai_policy`). While off, `/api/extract`, `/api/explain` and the `/api/review` mentor refuse any request whose `projectId` belongs to that workspace with `403 AI_DISABLED_FOR_WORKSPACE`, **before any provider call**; if the policy cannot be read the request is refused (`503 AI_POLICY_UNAVAILABLE`). Solve, probe, repair and the deterministic review never call a model and keep working.
+- The check keys on the `projectId` sent with the request. A request that names no project is treated as unsaved use (consent gate only); the workspace switch cannot see content the client does not attribute to a project. Editors cannot change the flag (no client UPDATE privilege on `workspaces`; `supabase/tests/rls_matrix.sql`).

@@ -7,6 +7,7 @@ import { readFormData, sniffImage, bodyErrorResponse } from '@/lib/server/readBo
 import { consentMissing, CONSENT_MESSAGE } from '@/lib/server/consent';
 import { validateGraph } from '@/lib/circuit/validate';
 import { recordTraces } from '@/lib/persist/traces';
+import { aiPolicyBlock } from '@/lib/persist/aiPolicy';
 import type { CandidateExtraction, ModelTraceEvent, RouteChoice } from '@/lib/circuit/types';
 
 const MAX = 5 * 1024 * 1024;
@@ -28,6 +29,8 @@ async function handle(req: Request) {
   }
   if (consentMissing(consent)) return err(422, 'CONSENT_REQUIRED', CONSENT_MESSAGE, ['aiConsent: must be "true"']);
   if (!(file instanceof File)) return err(400, 'MISSING_IMAGE', 'Field "image" is required', ['image: required file field']);
+  const blocked = await aiPolicyBlock(projectId);
+  if (blocked) return blocked;
   if (file.size > MAX) return err(413, 'TOO_LARGE', 'Image must be 5MB or smaller', [`image: ${file.size} bytes, limit ${MAX}`]);
 
   const bytes = new Uint8Array(await file.arrayBuffer());

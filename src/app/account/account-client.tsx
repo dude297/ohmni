@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { ohmni, OhmniApiError, signInWithEmail, supabaseBrowser } from "@/lib/client/ohmni";
 import { WorkspaceTeam } from "./team-panel";
+import { AiPolicyToggle } from "./ai-policy-toggle";
 
-type Ws = { id: string; name: string; role: string };
+type Ws = { id: string; name: string; role: string; aiProcessing: boolean };
 
 function errText(e: unknown) {
   if (e instanceof OhmniApiError) return `${e.message}${e.requestId ? ` (request ${e.requestId})` : ""}`;
@@ -91,8 +92,8 @@ function SignedIn({ email, onSignOut, onAccountDeleted }: { email: string; onSig
         setListErr(null);
         setList(
           workspaces.flatMap((m) => {
-            const w = (Array.isArray(m.workspace) ? m.workspace[0] : m.workspace) as { id: string; name: string } | null | undefined;
-            return w ? [{ id: w.id, name: w.name, role: m.role as string }] : [];
+            const w = (Array.isArray(m.workspace) ? m.workspace[0] : m.workspace) as { id: string; name: string; ai_processing?: boolean } | null | undefined;
+            return w ? [{ id: w.id, name: w.name, role: m.role as string, aiProcessing: w.ai_processing !== false }] : [];
           }),
         );
       },
@@ -177,6 +178,7 @@ function WorkspaceCard({ ws, onDeleted }: { ws: Ws; onDeleted: () => void }) {
         </div>
       )}
       <Err e={err} />
+      <AiPolicyToggle wsId={ws.id} role={ws.role} initial={ws.aiProcessing} />
       <WorkspaceTeam wsId={ws.id} role={ws.role} />
     </div>
   );

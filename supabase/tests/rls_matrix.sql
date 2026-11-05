@@ -135,6 +135,8 @@ select pg_temp.expect_count('E sees both w1 measurements', 'select count(*) from
 select pg_temp.expect_err('E cannot label a case directly',
   $q$update case_resolutions set benchmark_eligible = true$q$, array['42501']);
 select pg_temp.expect_err('E cannot insert audit events', $q$insert into audit_events (action, target_type) values ('x', 'x')$q$, array['42501']);
+select pg_temp.expect_count('E reads w1 ai_processing (default on)', $q$select count(*) from workspaces where id = '10000000-0000-4000-a000-000000000001' and ai_processing$q$, 1);
+select pg_temp.expect_err('E cannot flip ai_processing via PostgREST', $q$update workspaces set ai_processing = false where id = '10000000-0000-4000-a000-000000000001'$q$, array['42501']);
 reset role;
 
 -- anon: no privileges on any table.
@@ -162,6 +164,7 @@ set local role authenticated;
 select pg_temp.expect_count('A (owner) reads w1 audit events', 'select count(*) from audit_events', 1);
 select pg_temp.expect_err('audit events are append-only (update)', $q$update audit_events set action = 'x'$q$, array['42501']);
 select pg_temp.expect_err('audit events are append-only (delete)', $q$delete from audit_events$q$, array['42501']);
+select pg_temp.expect_err('owner cannot flip ai_processing via PostgREST either (server endpoint only)', $q$update workspaces set ai_processing = false where id = '10000000-0000-4000-a000-000000000001'$q$, array['42501']);
 select pg_temp.expect_rows('owner deletes the workspace via RLS', $q$delete from workspaces where id = '10000000-0000-4000-a000-000000000001'$q$, 1);
 reset role;
 select pg_temp.expect_count('workspace delete cascades', $q$select (select count(*) from projects where workspace_id = '10000000-0000-4000-a000-000000000001') + (select count(*) from measurements where workspace_id = '10000000-0000-4000-a000-000000000001') + (select count(*) from verifications where workspace_id = '10000000-0000-4000-a000-000000000001')$q$, 0);

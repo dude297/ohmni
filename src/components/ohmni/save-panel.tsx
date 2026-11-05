@@ -9,7 +9,7 @@ import type { Graph } from "./api";
 import { measurementBodies } from "./lab-helpers";
 
 type Source = "image_extraction" | "manual" | "fixture";
-type Opt = { id: string; name: string };
+type Opt = { id: string; name: string; ai_processing?: boolean };
 const NEW = "__new__";
 const FAULTS = [
   ["open", "Open"], ["short", "Short"], ["x10", "Value ~10x high"], ["x0.1", "Value ~10x low"],
@@ -205,6 +205,7 @@ export function SavePanel({ graph, source, observations }: { graph: Graph; sourc
             </select>
             {ws === NEW && <input aria-label="New workspace name" required maxLength={120} value={wsName} disabled={busy} onChange={(e) => setWsName(e.target.value)} />}
           </div>
+          {workspaces.find((w) => w.id === ws)?.ai_processing === false && <p role="note">AI processing is off for this workspace: schematic reading, explanations and the mentor are refused for its projects. Saving and the deterministic tools still work.</p>}
           <label htmlFor="save-project">Project</label>
           <div className="save-row">
             <select id="save-project" value={project} disabled={busy} onChange={(e) => setProject(e.target.value)}>

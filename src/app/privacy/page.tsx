@@ -82,6 +82,11 @@ export default function PrivacyPage() {
         The server can be configured to require explicit consent before any content is sent to an AI provider. Until the upload screen ships a consent
         checkbox this requirement is off by default; using upload, explain or mentor features sends the content described above.
       </p>
+      <p>
+        That per-request consent covers anonymous and unsaved use. Saved workspaces can turn AI off entirely: an owner switches off
+        &ldquo;AI processing&rdquo; in <Link href="/account">Account</Link>, and schematic reading, explanations and the mentor are then refused for
+        that workspace&apos;s projects before anything is sent to a provider. Solve, probe and repair never use AI and keep working.
+      </p>
 
       <h2>Contact</h2>
       <p>
