@@ -51,8 +51,19 @@ export default function PrivacyPage() {
           AI-processing consent flag; downloads use 60-second signed links issued after a membership check.
         </li>
         <li>
-          <strong>Usage metadata.</strong> For signed-in calls linked to a project we store call metadata (provider, model, status, latency, token counts, request id) —
-          never prompts, images or model output.
+          <strong>Usage metadata.</strong> For signed-in calls linked to a project by an owner or editor we store call metadata (provider, model, status, latency,
+          token counts, request id) — never prompts, images or model output.
+        </li>
+        <li>
+          <strong>Audit log.</strong> We record exactly these actions on saved data: workspace create, export and delete (including workspaces deleted with
+          an account), member add, role change and removal, project create, circuit confirm, investigation open and close, benchmark-consent changes, image
+          upload and account deletion. Each event holds who (user id), what (action, record type and id), when, and a request id — never names, emails, titles,
+          circuits, readings or images. Workspace owners can read it. It outlives a deleted workspace or account (with the workspace link and the actor cleared;
+          an account-deletion event keeps the deleted user&apos;s id, which is pseudonymous, not anonymous).
+        </li>
+        <li>
+          <strong>Resolved-case labels.</strong> When an owner or editor closes an investigation as resolved they may record the confirmed fault (component,
+          fault type, an optional out-of-circuit reading, and who resolved it). These labels are part of the workspace, included in its export and deleted with it.
         </li>
         <li>
           <strong>Rate limiting.</strong> Per-IP counters in server memory that expire with their window. When the database is configured, counters for the
@@ -66,12 +77,34 @@ export default function PrivacyPage() {
       </ul>
       <p>We do not use advertising or analytics cookies. Signing in stores a session token in your browser&apos;s local storage.</p>
 
+      <h2>Benchmark use of resolved cases (opt-in)</h2>
+      <p>
+        A resolved case is used to measure Ohmni&apos;s diagnosis accuracy <strong>only if a workspace owner opts in</strong> (editors cannot; an editor&apos;s
+        request is stored as &quot;no&quot;). Owners can grant or withdraw this later. Even with consent, a case is exported only if our server verified, from a
+        post-repair reading, that the repair of exactly the confirmed fault worked. The export contains the circuit, the readings and the fault label — no names,
+        titles, user ids or images. Withdrawing consent or deleting the workspace or account stops future exports, but <strong>exports already made are
+        kept</strong>.
+      </p>
+
+      <h2>Retention</h2>
+      <ul>
+        <li>Usage metadata: deleted after <strong>90 days</strong>.</li>
+        <li>Audit events: deleted after <strong>400 days</strong>.</li>
+        <li>
+          Both deletions run from a scheduled database job that the operator must enable; until it is scheduled, usage metadata is kept until its workspace is
+          deleted and audit events are kept indefinitely. Everything else is kept until you delete it (see below).
+        </li>
+      </ul>
+
       <h2>Your choices: export and deletion</h2>
       <ul>
-        <li><strong>Export:</strong> workspace owners and editors can download a full JSON export of a workspace from <Link href="/account">Account</Link>.</li>
+        <li>
+          <strong>Export:</strong> workspace owners and editors can download a full JSON export of a workspace from <Link href="/account">Account</Link>, including
+          resolved-case labels; owners&apos; exports also include the workspace&apos;s audit log.
+        </li>
         <li><strong>Delete a workspace:</strong> owners can permanently delete a workspace; this deletes all of its rows and stored images.</li>
         <li>
-          <strong>Delete your account:</strong> from <Link href="/account">Account</Link>. This deletes the workspaces where you are the only member and removes your sign-in.
+          <strong>Delete your account:</strong> from <Link href="/account">Account</Link>, within 10 minutes of signing in. This deletes the workspaces where you are the only member and removes your sign-in.
           In workspaces shared with others, the rows you entered stay but are no longer attributed to you. If you are the only owner of a shared workspace, make
           another member an owner (or remove the other members) first.
         </li>
@@ -79,13 +112,14 @@ export default function PrivacyPage() {
 
       <h2>Consent for AI processing</h2>
       <p>
-        The server can be configured to require explicit consent before any content is sent to an AI provider. Until the upload screen ships a consent
-        checkbox this requirement is off by default; using upload, explain or mentor features sends the content described above.
+        The upload screen in the <Link href="/lab">Lab</Link> has a consent checkbox: no image is sent to an AI provider until you tick it, and your browser
+        remembers the choice. Explanations and the design-review mentor send the content described above when you ask for them. The server can also be
+        configured to refuse any AI request that does not carry consent.
       </p>
 
       <h2>Contact</h2>
       <p>
-        Privacy requests: [contact email]. Security issues: report privately via <a href={ADVISORIES_URL}>GitHub security advisories</a>. See also{" "}
+        Privacy requests: <strong>[contact email — to be added before public launch]</strong>. Security issues: report privately via <a href={ADVISORIES_URL}>GitHub security advisories</a>. See also{" "}
         <Link href="/security">Security</Link>.
       </p>
     </LegalPage>
