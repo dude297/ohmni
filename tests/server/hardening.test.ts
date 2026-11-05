@@ -77,6 +77,25 @@ describe('provider retry', () => {
     await extractCircuit(new Uint8Array([1]), 'image/png');
     expect(generateContent).toHaveBeenCalledTimes(1);
   });
+
+  it('Groq and Gemini: one retry on a network error (no HTTP status)', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('fetch failed')).mockResolvedValueOnce(groqOk());
+    const g = await extractWithGroq(new Uint8Array([1]), 'image/png');
+    expect(g.event).toMatchObject({ status: 'ok', attempts: 2 });
+    generateContent.mockRejectedValueOnce(new TypeError('fetch failed')).mockResolvedValueOnce({ text: JSON.stringify(good) });
+    const m = await extractCircuit(new Uint8Array([1]), 'image/png');
+    expect(m.failure).toBeUndefined();
+    expect(generateContent).toHaveBeenCalledTimes(2);
+  });
+
+  it('Jev: never retried, even on 503 (1 call/min pacing; a retry would burn quota)', async () => {
+    vi.stubEnv('BEATAPI_API_KEY', 'b');
+    fetchMock.mockResolvedValue(new Response('{}', { status: 503 }));
+    const extraction = { graph: DIVIDER_10K_10K, warnings: [], unresolvedConnections: [] } as unknown as Parameters<typeof routeExtraction>[0]['extraction'];
+    const r = await routeExtraction({ extraction, validationErrors: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ route: 'ask_user', event: { status: 'error', note: 'Jev HTTP 503; defaulting to ask_user' } });
+  });
 });
 
 describe('prompt fences', () => {
