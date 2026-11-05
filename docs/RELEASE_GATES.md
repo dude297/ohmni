@@ -69,7 +69,7 @@ Calibration (ECE / Brier / reliability bins) is **not computed** by the harness 
 
 | Gate | Status | Evidence | What's left / owner action |
 |---|---|---|---|
-| ≥ 100 real resolved cases (≥ 10 designs); metrics on real cases with n | NOT MET | 0 real cases; `bench/cases/` absent. Labelling pipeline: `case_resolutions` table (`supabase/migrations/20261105000000_audit_log_resolved_cases.sql:33`) + resolve-case UI (#110). | Apply the migration; recruit alpha engineers; build the export of resolved cases into `bench/cases`. |
+| ≥ 100 real resolved cases (≥ 10 designs); metrics on real cases with n | NOT MET | 0 real cases; `bench/cases/` absent. Labelling pipeline: `case_resolutions` table (`supabase/migrations/20261105000000_audit_log_resolved_cases.sql:33`) + resolve-case UI (#110). | Apply the migration; recruit alpha engineers; run `scripts/export-real-cases.mjs` (#98) once cases exist. |
 | Paid, no-training AI tiers (or AI disabled per workspace) | NOT MET | All three providers on free tiers (`/api/health`: `gemini-3.5-flash-lite`, `qwen/qwen3.8-27b` Preview, `jev-1.13-free`); free-tier terms carry no no-training guarantee. No per-workspace AI-disable switch in code. | Owner: move Gemini and Groq to paid tiers with no-training terms (Jev paid ids are refused in code today), or ship a per-workspace "AI off" flag. Collect pricing first (cost per analysis is still unknown, PRODUCTION_PHASE1 section E). |
 | DPA / subprocessor list | PARTIAL | `/subprocessors` page live (#100). No DPA document in repo. | Counsel: DPA template; signed DPAs with Vercel, Supabase and AI vendors. |
 | Retention and deletion (workspace delete removes storage objects) | PARTIAL | Workspace delete removes Storage objects first (`src/lib/persist/lifecycle.ts:49`, `artifacts.ts:58-75`); account deletion #94 verified in persistence-e2e. Retention function `purge_expired()` written. | `purge_expired()` lives in the unapplied migration and is **not scheduled** (`docs/OPERATIONS.md:41`). Owner: `db push`, enable `pg_cron`, schedule it. Retention periods need counsel sign-off. |
@@ -90,7 +90,7 @@ Calibration (ECE / Brier / reliability bins) is **not computed** by the harness 
 | Billing | NOT MET | No billing code in `src/`. | Build (Stripe) after pricing is set. |
 | Account management | PARTIAL | `/account` page (#100): sign-in, workspaces, delete account; invitations by email #109. | Custom SMTP not configured, so invite and magic-link email runs on Supabase's rate-limited default sender; Supabase Auth redirect allow-list for the prod origin unverified. |
 | Audit log | PARTIAL | `audit_events` table, owner-read only, server-write only (#98, migration `20261105000000`). | **Not applied** to live; no UI to view it. |
-| Data export self-service | PARTIAL | Workspace export API #86, in persistence-e2e ALL PASS. | API only: no UI caller of `/api/v1/workspaces/[id]/export` in `src/app` or `src/components`. Add an Export button on the workspace card. |
+| Data export self-service | MET | Workspace export API #86 (persistence-e2e ALL PASS) and the "Export (JSON)" button on each workspace card in /account (`src/app/account/account-client.tsx`, #100). | — |
 | Deletion self-service | MET | Account deletion `POST /api/v1/account/delete` #94 (LAST_OWNER 409 guard), workspace owner delete with typed confirmation #86, both in persistence-e2e ALL PASS at `67317fe`; delete-account UI in `src/app/account/account-client.tsx:118`. | — |
 
 ## Owner action list for commercialization (priority order)
