@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -24,7 +24,7 @@ import { CircuitView } from "./circuit-view";
 import { ProbeGuide } from "./probe-guide";
 import { MeasurementComparison } from "./measurement-comparison";
 import { SavePanel } from "./save-panel";
-import { readConsent, writeConsent } from "./lab-helpers";
+import { AiConsent, useAiConsent } from "./ai-consent";
 import type { Observation } from "../../lib/probe";
 import {
   Extraction,
@@ -46,7 +46,6 @@ type Mode = "empty" | "sample" | "manual" | "upload";
 type Phase = "review" | "extracting" | "solving";
 type Stage = "capture" | "review" | "compare" | "investigate";
 const stages: Stage[] = ["capture", "review", "compare", "investigate"];
-const noSubscribe = () => () => {};
 
 export function LabWorkspace() {
   const params = useSearchParams();
@@ -86,9 +85,7 @@ export function LabWorkspace() {
   const [trace, setTrace] = useState<Trace[]>([]);
   const [acknowledged, setAcknowledged] = useState<string[]>([]);
   const [json, setJson] = useState("");
-  const [consentChoice, setAiConsent] = useState<boolean>();
-  const storedConsent = useSyncExternalStore(noSubscribe, readConsent, () => false);
-  const aiConsent = consentChoice ?? storedConsent;
+  const [aiConsent] = useAiConsent();
   const [probeObs, setProbeObs] = useState<{ key: string; obs: Observation[] }>();
   const inputRef = useRef<HTMLInputElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
@@ -409,10 +406,7 @@ export function LabWorkspace() {
               subtitle="Upload a schematic to analyze its connections, or try a sample to see how Ohmni works."
             />
             <p className="stage-intro">Choose a readable schematic, a prepared example, or a manual graph. You will review the connections before any calculation.</p>
-            <label className="ai-consent">
-              <input type="checkbox" checked={aiConsent} onChange={(e) => { setAiConsent(e.target.checked); writeConsent(e.target.checked); }} />
-              <span>I agree that my image is sent to third-party AI providers (Groq, Google Gemini) and a structured summary to BeatAPI (Jev), on free tiers whose terms may allow training on it. Samples and manual graphs never use AI. <Link href="/privacy">Privacy</Link></span>
-            </label>
+            <AiConsent inline={false} what="my image is sent to third-party AI providers (Groq, Google Gemini) and a structured summary to BeatAPI (Jev)" note="Samples and manual graphs never use AI." />
             <label className={`upload-zone ${pending || !aiConsent ? "disabled" : ""}`}>
               <input
                 ref={inputRef}

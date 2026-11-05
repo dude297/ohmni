@@ -9,6 +9,7 @@ import type { FaultHypothesis, ProbeStep } from "../../lib/probe";
 import type { ModelTraceEvent } from "../../lib/circuit/types";
 import { CIRCUITS, Obs, addObservation, apiErrorMessage, fmtPct, fmtV, parseVolts } from "./helpers";
 import { GuidePanel, ProbeSchematic } from "./guide-overlay";
+import { AiConsent, CONSENT_NEEDED, useAiConsent, withAiConsent } from "../../components/ohmni/ai-consent";
 import "./probe.css";
 
 // Classes are prefixed "pg-" in probe.css (see note there); s.foo -> "pg-foo".
@@ -55,6 +56,7 @@ export function ProbeClient() {
   const [exp, setExp] = useState<Explain | null>(null);
   const [expLoading, setExpLoading] = useState(false);
   const [expError, setExpError] = useState("");
+  const [aiConsent] = useAiConsent();
 
   const [guideOpen, setGuideOpen] = useState(true);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -114,7 +116,7 @@ export function ProbeClient() {
     setExpError("");
     try {
       const measured = obs.find((o) => o.node === graph.measureNode)?.volts;
-      const { res, body } = await post("/api/explain", { graph, userConfirmed: true, ...(measured !== undefined && { measuredVoltage: measured }) });
+      const { res, body } = await post("/api/explain", withAiConsent({ graph, userConfirmed: true, ...(measured !== undefined && { measuredVoltage: measured }) }, aiConsent));
       if (!res.ok || !body?.result) {
         setExp(null);
         setExpError(res.status === 429 ? apiErrorMessage(429, body, res.headers.get("retry-after")) : "Tutor unavailable right now. The Probe Guide above still works.");
@@ -295,7 +297,9 @@ export function ProbeClient() {
         <details className={`workspace-panel ${s.panel} ${s.tutor}`} aria-labelledby="tutor-h" aria-live="polite">
           <summary><h2 id="tutor-h" className={s.h2}><GraduationCap size={18} /> Explain this circuit</h2></summary>
           <p className={s.muted}>A tutor explains {circuit.label.toLowerCase()} step by step. Every number is checked against the solver.</p>
-          <button type="button" className="button secondary" onClick={explain} disabled={expLoading || (circuit.key === "loaded-bridge" && !reviewed)}>
+          <AiConsent what="this circuit and your readings are sent to Google Gemini" />
+          {!aiConsent && <p className={s.muted}>{CONSENT_NEEDED} Probing above never uses AI.</p>}
+          <button type="button" className="button secondary" onClick={explain} disabled={!aiConsent || expLoading || (circuit.key === "loaded-bridge" && !reviewed)}>
             {expLoading ? <Loader2 className={s.spin} size={16} /> : null} {expLoading ? "Explaining…" : "Explain this circuit"}
           </button>
           {expError && <div className={s.errorBox} role="alert"><X size={16} /> {expError}</div>}
