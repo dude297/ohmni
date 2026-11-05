@@ -6,6 +6,7 @@ import { HeroCircuit } from "../components/ohmni/hero-circuit";
 import { ScrollExperience } from "../components/ohmni/scroll-experience";
 import { UseCases } from "../components/ohmni/use-cases";
 import { SiteNavigation } from "../components/ohmni/site-navigation";
+import { LegalLinks } from "../components/ohmni/legal";
 
 export const metadata: Metadata = {title: "Ohmni | The living schematic", description: "Review a circuit. Compare a measurement. Find your next experiment."};
 export default function Home() {
@@ -26,6 +27,6 @@ export default function Home() {
    <section id="how-it-works" className="living-method"><div className="eyebrow">THE INVESTIGATION</div><h2>Every reading moves you forward.</h2><ol>{["Capture","Review & confirm","Compare","Investigate"].map((step,i)=><li key={step}><span>0{i+1}</span><strong>{step}</strong>{i<3&&<ArrowRight size={18} aria-hidden="true"/>}</li>)}</ol><p>Prepared examples are labelled. Uploaded schematics require your confirmation. Predictions and hypotheses stay distinct from measurements.</p></section>
    <UseCases/>
   </main>
-  <footer className="site-footer"><Brand/><p>Low-voltage DC only. Disconnect power before checking resistance. Hypotheses require physical verification.</p><Link href="/for-the-larp">Inspect the engineering →</Link></footer>
+  <footer className="site-footer"><Brand/><p>Low-voltage DC only. Disconnect power before checking resistance. Hypotheses require physical verification.</p><Link href="/for-the-larp">Inspect the engineering →</Link><LegalLinks/></footer>
  </div>;
 }

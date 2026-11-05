@@ -1,0 +1,28 @@
+.legal-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--ohmni-bg); color: var(--ohmni-ink); }
+.legal-header { padding: 20px 24px; border-bottom: 1px solid var(--ohmni-border); }
+.legal-header .brand { font-size: 24px; }
+.legal-header .brand svg { width: 23px; height: 26px; }
+.legal { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 32px 20px 56px; line-height: 1.6; font-size: 16px; }
+.legal h1 { font-size: 32px; margin: 16px 0 4px; }
+.legal h2 { font-size: 20px; margin: 32px 0 8px; }
+.legal p, .legal li { color: var(--ohmni-ink); }
+.legal ul, .legal ol { padding-left: 22px; list-style: disc; }
+.legal ol { list-style: decimal; }
+.legal a { text-decoration: underline; }
+.legal code { font-family: var(--font-geist-mono), monospace; font-size: 14px; background: var(--ohmni-paper); padding: 1px 4px; border-radius: 4px; }
+.legal table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+.legal th, .legal td { border: 1px solid var(--ohmni-border); padding: 8px; text-align: left; vertical-align: top; background: var(--ohmni-paper); }
+.legal-banner { background: #fff4df; border: 1px solid var(--ohmni-accent); color: var(--ohmni-accent-ink) !important; padding: 10px 14px; border-radius: 8px; font-weight: 600; }
+.legal-updated { color: var(--ohmni-muted) !important; font-size: 14px; margin: 0; }
+.legal-footer { border-top: 1px solid var(--ohmni-border); padding: 18px 24px; }
+.legal-links { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--ohmni-muted); }
+.legal-links a:hover { color: var(--ohmni-ink); text-decoration: underline; }
+/* Account page controls */
+.legal input { border: 1px solid var(--ohmni-border); border-radius: 6px; padding: 8px 10px; background: var(--ohmni-paper); min-width: 0; }
+.legal button { border: 1px solid var(--ohmni-ink); border-radius: 6px; padding: 7px 12px; background: var(--ohmni-paper); cursor: pointer; }
+.legal button:disabled { opacity: .5; cursor: not-allowed; }
+.legal button.danger { border-color: var(--ohmni-danger); color: var(--ohmni-danger); }
+.legal .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.legal .card { background: var(--ohmni-paper); border: 1px solid var(--ohmni-border); border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
+.legal .error { color: var(--ohmni-danger) !important; }
+.legal .ok { color: var(--ohmni-success) !important; }

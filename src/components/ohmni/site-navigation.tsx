@@ -11,6 +11,7 @@ export function SiteNavigation() {
         <div className="nav-more-links">
           <Link href="/probe">Probe Guide <ArrowUpRight size={13} aria-hidden="true" /></Link>
           <Link href="/for-the-larp">Under the Hood <ArrowUpRight size={13} aria-hidden="true" /></Link>
+          <Link href="/account">Account <ArrowUpRight size={13} aria-hidden="true" /></Link>
         </div>
       </details>
       <Link className="nav-cta" href="/lab">Open lab <ArrowUpRight size={14} aria-hidden="true" /></Link>

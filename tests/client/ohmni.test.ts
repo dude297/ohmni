@@ -44,4 +44,21 @@ describe('browser API client', () => {
     expect((init.body as FormData).get('aiConsent')).toBe('true');
     expect((init.headers as Record<string, string>)['content-type']).toBeUndefined();
   });
+
+  it('account lifecycle: typed confirmations for deletes, GET for export', async () => {
+    const f = vi.fn(async () => json(200, { deleted: true }));
+    const api = createOhmniApi(async () => 'tok', f as unknown as typeof fetch);
+    await api.account.delete('a@b.c');
+    await api.workspaces.delete('w 1', 'My WS');
+    await api.workspaces.export('w 1');
+    const calls = f.mock.calls as unknown as [string, RequestInit][];
+    expect(calls.map(([u, i]) => `${i.method} ${u}`)).toEqual(['POST /api/v1/account/delete', 'POST /api/v1/workspaces/w%201/delete', 'GET /api/v1/workspaces/w%201/export']);
+    expect(JSON.parse(calls[0][1].body as string)).toEqual({ confirm: 'a@b.c' });
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({ confirm: 'My WS' });
+  });
+
+  it('surfaces LAST_OWNER details on account deletion', async () => {
+    const api = createOhmniApi(async () => 'tok', (async () => json(409, { error: { code: 'LAST_OWNER', message: 'm', requestId: 'r', details: ['Lab (x)'] } })) as unknown as typeof fetch);
+    await expect(api.account.delete('a@b.c')).rejects.toMatchObject({ status: 409, code: 'LAST_OWNER', details: ['Lab (x)'] });
+  });
 });

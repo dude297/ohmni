@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    # eecircuit-engine is a 20 MB opaque WASM bundle pinned on purpose (tests/ac/engine.test.ts); bump it by hand after review.
+    ignore:
+      - dependency-name: eecircuit-engine
     groups:
       npm-minor-patch:
         update-types: [minor, patch]

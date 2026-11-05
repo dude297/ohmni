@@ -14,6 +14,7 @@ import {
   commitBlocker, commitReading, getRecognitionCtor, hypothesesReply, initialState, nextReply, postJSON, reducer,
   speechErrorMessage, voiceConfirmBlocker, type Phase, type ProbeResult,
 } from "./machine";
+import { AiConsent, CONSENT_NEEDED, useAiConsent, withAiConsent } from "../../../components/ohmni/ai-consent";
 import "./voice-lab.css";
 import "./repair.css";
 
@@ -57,6 +58,7 @@ export function VoiceLab() {
   const [exp, setExp] = useState<Explain | null>(null);
   const [expBusy, setExpBusy] = useState(false);
   const [expErr, setExpErr] = useState("");
+  const [aiConsent] = useAiConsent();
   const [repair, setRepair] = useState<RepairResult | null>(null);
   const [repairErr, setRepairErr] = useState("");
   const [approved, setApproved] = useState(false);
@@ -143,11 +145,12 @@ export function VoiceLab() {
   const runExplain = useCallback(async () => {
     const s = stateRef.current;
     if (!s.circuitConfirmed) return say("Confirm the circuit first.");
+    if (!aiConsent) return say(CONSENT_NEEDED);
     setExpBusy(true);
     setExpErr("");
     try {
       const measured = s.observations.find((o) => o.node === graph.measureNode)?.volts;
-      const r = await postJSON<Explain>((u, i) => fetch(u, i), "/api/explain", { graph, userConfirmed: true, ...(measured !== undefined ? { measuredVoltage: measured } : {}) });
+      const r = await postJSON<Explain>((u, i) => fetch(u, i), "/api/explain", withAiConsent({ graph, userConfirmed: true, ...(measured !== undefined ? { measuredVoltage: measured } : {}) }, aiConsent));
       if (stateRef.current.revision !== s.revision) return; // circuit changed mid-flight: drop the result
       setExp(r);
       // speak only verified text; an ungrounded explanation stays on screen under the amber badge
@@ -158,7 +161,7 @@ export function VoiceLab() {
     } finally {
       setExpBusy(false);
     }
-  }, [graph, say, speak]);
+  }, [graph, say, speak, aiConsent]);
 
   const handleText = useCallback(
     (text: string, _source: Source) => { // eslint-disable-line @typescript-eslint/no-unused-vars
@@ -439,8 +442,9 @@ export function VoiceLab() {
             )}
             {repair && !repair.proposals[0] && <p className="vl-note" role="status">{proposalNarration(repair)}</p>}
 
+            <AiConsent what="this circuit and your readings are sent to Google Gemini for Explain" note="Readings, probing and repair never use AI." />
             <div className="vl-foot">
-              <button type="button" className="button secondary" disabled={!circuitConfirmed || expBusy} onClick={() => void runExplain()}>
+              <button type="button" className="button secondary" disabled={!aiConsent || !circuitConfirmed || expBusy} onClick={() => void runExplain()}>
                 {expBusy ? <Loader2 className="vl-spin" size={15} aria-hidden /> : null} Explain (Gemini)
               </button>
               <label className="vl-check"><input type="checkbox" checked={speakOn} onChange={(e) => { setSpeakOn(e.target.checked); if (!e.target.checked) window.speechSynthesis?.cancel(); }} /> Speak replies</label>
