@@ -7,6 +7,11 @@ let results: Record<string, { data: unknown; error: unknown }> = {};
 let adminThrows = false;
 function fakeDb() {
   return {
+    // close_investigation(): echoes the label the server computed, as the SQL function stores it
+    rpc: (name: string, args: { p_resolution: unknown }) => {
+      inserts.push({ table: `rpc:${name}`, row: args });
+      return Promise.resolve({ data: { investigation: { ...INV, status: 'resolved' }, resolution: args.p_resolution }, error: null });
+    },
     from(table: string) {
       const q: Record<string, unknown> = {};
       const chain = new Proxy(q, {
@@ -77,29 +82,29 @@ describe('resolved-case capture', () => {
 
   it('close with a confirmed fault stores the label (eligible from the stored verification) and an audit event', async () => {
     results = {
-      investigations: { data: { ...INV, project_id: 'p', revision_id: 'r', title: 't', status: 'resolved', opened_at: 'x', closed_at: 'y', revision: { graph: GRAPH, revision_hash: 'rev_x' } }, error: null },
+      investigations: { data: { ...INV, project_id: 'p', revision_id: 'r', title: 't', status: 'open', opened_at: 'x', closed_at: null, revision: { graph: GRAPH, revision_hash: 'rev_x' } }, error: null },
+      workspace_members: { data: { role: 'owner' }, error: null },
       measurements: { data: [], error: null },
-      repair_proposals: { data: [{ id: 'prop-1' }], error: null },
+      repair_proposals: { data: [{ id: 'prop-1', hypothesis: { hypothesis_key: 'R2:open' } }], error: null },
       verifications: { data: [{ id: 'ver-9' }], error: null },
-      case_resolutions: { data: { fault_class: 'open', benchmark_eligible: true, benchmark_consent: true }, error: null },
       audit_events: { data: null, error: null },
     };
     const out = await closeInvestigation(caller, INV.id, { status: 'resolved', confirmedFault: { componentId: 'R2', faultClass: 'open' }, benchmarkConsent: true });
     expect(out.resolution).toMatchObject({ benchmark_eligible: true });
-    expect(inserts.find((i) => i.table === 'case_resolutions')?.row).toMatchObject({ benchmark_eligible: true, verification_id: 'ver-9', resolved_by: 'u1' });
+    expect((inserts.find((i) => i.table === 'rpc:close_investigation')?.row as { p_resolution: unknown }).p_resolution).toMatchObject({ benchmark_eligible: true, verification_id: 'ver-9', resolved_by: 'u1' });
     const ev = inserts.find((i) => i.table === 'audit_events')?.row as Record<string, unknown>;
     expect(ev).toMatchObject({ action: 'investigation.close', actor_id: 'u1', request_id: 'req-1', target_id: INV.id, metadata: { status: 'resolved', benchmarkEligible: true } });
   });
 
   it('no stored passing verification: case is recorded but not eligible', async () => {
     results = {
-      investigations: { data: { ...INV, revision: { graph: GRAPH, revision_hash: 'rev_x' } }, error: null },
+      investigations: { data: { ...INV, status: 'open', revision: { graph: GRAPH, revision_hash: 'rev_x' } }, error: null },
+      workspace_members: { data: { role: 'editor' }, error: null },
       measurements: { data: [], error: null },
       repair_proposals: { data: [], error: null },
-      case_resolutions: { data: { benchmark_eligible: false }, error: null },
     };
     await closeInvestigation(caller, INV.id, { status: 'resolved', confirmedFault: { componentId: 'R2', faultClass: 'open' }, benchmarkConsent: true });
-    expect(inserts.find((i) => i.table === 'case_resolutions')?.row).toMatchObject({ benchmark_eligible: false, verification_id: null });
+    expect((inserts.find((i) => i.table === 'rpc:close_investigation')?.row as { p_resolution: unknown }).p_resolution).toMatchObject({ benchmark_eligible: false, verification_id: null });
   });
 });
 

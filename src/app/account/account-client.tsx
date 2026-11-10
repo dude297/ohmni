@@ -219,6 +219,9 @@ function DeleteAccount({ email, onDeleted }: { email: string; onDeleted: (msg: s
       </div>
       {err instanceof OhmniApiError && err.code === "LAST_OWNER" && <p className="error">You are the only owner of these shared workspaces:</p>}
       {err instanceof OhmniApiError && err.status === 422 && <p className="error">The email you typed does not match your account.</p>}
+      {err instanceof OhmniApiError && err.code === "REAUTH_REQUIRED" && (
+        <p className="error">For safety, account deletion needs a recent sign-in. Sign out, sign in again with a fresh magic link, then delete within 10 minutes.</p>
+      )}
       <Err e={err} />
     </>
   );

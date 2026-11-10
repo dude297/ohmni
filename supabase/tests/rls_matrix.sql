@@ -28,6 +28,8 @@ begin
   if got <> n then raise exception 'FAIL % : expected % affected rows, got %', name, n, got; end if;
 end $$;
 grant execute on all functions in schema pg_temp to authenticated, anon;
+-- Deferred constraint triggers (keep_an_owner) would otherwise only run at COMMIT, which this rolled-back script never reaches.
+set constraints all immediate;
 
 insert into auth.users (id, email) values
   ('00000000-0000-4000-a000-00000000000a', 'rls-a@test.invalid'),
@@ -69,6 +71,23 @@ insert into audit_events (id, workspace_id, actor_id, action, target_type, targe
   ('80000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', '00000000-0000-4000-a000-00000000000a', 'project.create', 'project', '20000000-0000-4000-a000-000000000001');
 insert into case_resolutions (investigation_id, workspace_id, component_id, fault_class, benchmark_consent, benchmark_eligible, resolved_by) values
   ('40000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', 'R6', 'open', true, false, '00000000-0000-4000-a000-00000000000a');
+
+-- Last owner (keep_an_owner): A is w1's only owner while E and V are members.
+select pg_temp.expect_err('last owner cannot be removed', $q$delete from workspace_members where workspace_id = '10000000-0000-4000-a000-000000000001' and user_id = '00000000-0000-4000-a000-00000000000a'$q$, array['23514']);
+select pg_temp.expect_err('last owner cannot be demoted', $q$update workspace_members set role = 'editor' where workspace_id = '10000000-0000-4000-a000-000000000001' and user_id = '00000000-0000-4000-a000-00000000000a'$q$, array['23514']);
+select pg_temp.expect_err('deleting the last owner''s auth user (membership cascade) is refused', $q$delete from auth.users where id = '00000000-0000-4000-a000-00000000000a'$q$, array['23514']);
+-- close_investigation is atomic: a label that cannot be stored (duplicate) leaves the investigation open.
+select pg_temp.expect_err('close with a failing label insert rolls back the status change',
+  $q$select public.close_investigation('40000000-0000-4000-a000-000000000001', 'resolved', '{"fault_class": "open", "component_id": "R6"}'::jsonb)$q$, array['23505']);
+select pg_temp.expect_count('investigation still open after the failed close', $q$select count(*) from investigations where id = '40000000-0000-4000-a000-000000000001' and status = 'open'$q$, 1);
+delete from case_resolutions where investigation_id = '40000000-0000-4000-a000-000000000001';
+select pg_temp.expect_count('close_investigation returns the stored label',
+  $q$select count(*) from public.close_investigation('40000000-0000-4000-a000-000000000001', 'resolved', '{"fault_class": "open", "component_id": "R6", "benchmark_consent": true, "resolved_by": "00000000-0000-4000-a000-00000000000a"}'::jsonb) r
+     where r->'resolution'->>'fault_class' = 'open' and r->'investigation'->>'status' = 'resolved'$q$, 1);
+select pg_temp.expect_count('close_investigation stored status and label together',
+  $q$select count(*) from investigations i join case_resolutions cr on cr.investigation_id = i.id
+     where i.id = '40000000-0000-4000-a000-000000000001' and i.status = 'resolved' and i.closed_at is not null and cr.benchmark_consent and not cr.benchmark_eligible$q$, 1);
+select pg_temp.expect_err('closing a closed investigation is refused', $q$select public.close_investigation('40000000-0000-4000-a000-000000000001', 'abandoned', null)$q$, array['P0002']);
 
 -- B: owns w2, sees nothing of w1, cannot write into it, cannot graft rows across tenants.
 select pg_temp.as_user('00000000-0000-4000-a000-00000000000b');
@@ -135,6 +154,14 @@ select pg_temp.expect_count('E sees both w1 measurements', 'select count(*) from
 select pg_temp.expect_err('E cannot label a case directly',
   $q$update case_resolutions set benchmark_eligible = true$q$, array['42501']);
 select pg_temp.expect_err('E cannot insert audit events', $q$insert into audit_events (action, target_type) values ('x', 'x')$q$, array['42501']);
+select pg_temp.expect_rows('E can rename an investigation', $q$update investigations set title = 'renamed' where id = '40000000-0000-4000-a000-000000000001'$q$, 1);
+select pg_temp.expect_err('E cannot reassign opened_by', $q$update investigations set opened_by = '00000000-0000-4000-a000-00000000000e'$q$, array['42501']);
+select pg_temp.expect_err('E cannot change status directly', $q$update investigations set status = 'resolved'$q$, array['42501']);
+select pg_temp.expect_err('E cannot backdate opened_at', $q$update investigations set opened_at = now() - interval '1 year'$q$, array['42501']);
+select pg_temp.expect_err('E cannot reassign project created_by', $q$update projects set created_by = '00000000-0000-4000-a000-00000000000e'$q$, array['42501']);
+select pg_temp.expect_err('E cannot move a project to another workspace', $q$update projects set workspace_id = '10000000-0000-4000-a000-000000000002'$q$, array['42501']);
+select pg_temp.expect_rows('E can rename a project', $q$update projects set name = 'p1b' where id = '20000000-0000-4000-a000-000000000001'$q$, 1);
+select pg_temp.expect_err('E cannot call close_investigation (server only)', $q$select public.close_investigation('40000000-0000-4000-a000-000000000001', 'resolved', null)$q$, array['42501']);
 reset role;
 
 -- anon: no privileges on any table.
@@ -168,6 +195,13 @@ select pg_temp.expect_count('workspace delete cascades', $q$select (select count
 
 select pg_temp.expect_count('audit trail outlives the workspace (workspace_id set null)', $q$select count(*) from audit_events where id = '80000000-0000-4000-a000-000000000001' and workspace_id is null$q$, 1);
 select pg_temp.expect_count('workspace delete cascades case resolutions', $q$select count(*) from case_resolutions where workspace_id = '10000000-0000-4000-a000-000000000001'$q$, 0);
+-- Auth user deletion cascades memberships; the last-owner rule still holds, and solo workspaces are not blocked.
+insert into workspaces (id, name, created_by) values ('10000000-0000-4000-a000-000000000003', 'w3', '00000000-0000-4000-a000-00000000000b');
+insert into workspace_members (workspace_id, user_id, role) values ('10000000-0000-4000-a000-000000000003', '00000000-0000-4000-a000-00000000000f', 'editor');
+select pg_temp.expect_err('B (last owner of shared w3) cannot be deleted', $q$delete from auth.users where id = '00000000-0000-4000-a000-00000000000b'$q$, array['23514']);
+select pg_temp.expect_rows('V (editor) can be deleted; memberships cascade', $q$delete from auth.users where id = '00000000-0000-4000-a000-00000000000f'$q$, 1);
+select pg_temp.expect_rows('B (now only member of w2, w3) can be deleted', $q$delete from auth.users where id = '00000000-0000-4000-a000-00000000000b'$q$, 1);
+
 select pg_temp.expect_count('purge keeps fresh audit events', $q$select (public.purge_expired()->>'audit_events')::bigint$q$, 0);
 
 select 'RLS MATRIX: ALL PASS' as result;
