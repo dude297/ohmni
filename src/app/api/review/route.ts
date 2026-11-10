@@ -4,6 +4,7 @@ import { readJson, bodyErrorResponse } from '@/lib/server/readBody';
 import { z } from 'zod';
 import { consentMissing, CONSENT_MESSAGE } from '@/lib/server/consent';
 import { reviewCircuit, mentorExplain, REVIEW_DISCLAIMER } from '../../../lib/review';
+import { aiPolicyBlock } from '@/lib/persist/aiPolicy';
 import type { ModelTraceEvent } from '../../../lib/circuit/types';
 
 const body = z.object({
@@ -20,6 +21,7 @@ const body = z.object({
     })
     .optional(),
   aiConsent: z.unknown().optional(),
+  projectId: z.unknown().optional(), // optional: workspace AI policy context (mentor only)
 });
 
 const err = (status: number, code: string, message: string, details?: string[]) =>
@@ -47,6 +49,8 @@ async function handle(req: Request) {
   // Only the mentor sends the circuit to a model; the deterministic review needs no consent.
   if (mentor && consentMissing(parsed.data.aiConsent === true)) return err(422, 'CONSENT_REQUIRED', CONSENT_MESSAGE);
   if (mentor) {
+    const blocked = await aiPolicyBlock(req, parsed.data.projectId);
+    if (blocked) return blocked;
     const finding = review.findings.find((f) => f.id === mentor.findingId);
     if (!finding) return err(422, 'FINDING_NOT_FOUND', `No finding with id "${mentor.findingId}"`);
     mentorOut = await mentorExplain({ graph, finding, level: mentor.level, mode: mentor.mode, hintIndex: mentor.hintIndex });

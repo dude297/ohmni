@@ -6,7 +6,8 @@ import { audit } from './audit';
 // Workspace data lifecycle: full export (owners/editors, RLS reads) and permanent deletion (owner, typed confirmation).
 // Viewers can read records in the app but not bulk-download them (contractor/auditor seats).
 
-const TABLES = ['workspace_members', 'projects', 'artifacts', 'design_revisions', 'investigations', 'measurements', 'hypotheses', 'repair_proposals', 'verifications', 'model_traces', 'reports'] as const;
+const TABLES = ['workspace_members', 'projects', 'artifacts', 'design_revisions', 'investigations', 'measurements', 'hypotheses', 'repair_proposals', 'verifications', 'model_traces', 'reports', 'case_resolutions'] as const;
+const OWNER_TABLES = ['audit_events'] as const; // RLS: owners only, so editors' exports omit it rather than return it empty
 const PAGE = 1000; // PostgREST default max_rows
 const MAX_PER_TABLE = 50_000; // ponytail: synchronous export; move to a background job + Storage file past this
 
@@ -19,14 +20,15 @@ async function role({ user, db }: Caller, workspaceId: string) {
 
 /** Every row of the workspace (RLS reads), table by table, paged. Owners and editors only. */
 export async function exportWorkspace(c: Caller, workspaceId: string) {
-  if ((await role(c, workspaceId)) === 'viewer') throw new ApiError(403, 'FORBIDDEN', 'Viewers cannot export a workspace; ask an owner or editor.');
+  const r = await role(c, workspaceId);
+  if (r === 'viewer') throw new ApiError(403, 'FORBIDDEN', 'Viewers cannot export a workspace; ask an owner or editor.');
   const { data: workspace, error } = await c.db.from('workspaces').select('id, name, created_at').eq('id', workspaceId).single();
   if (error) dbFail(error, 'load workspace');
   const tables: Record<string, unknown[]> = {};
-  for (const t of TABLES) {
+  for (const t of r === 'owner' ? [...TABLES, ...OWNER_TABLES] : TABLES) {
     const rows: unknown[] = [];
     for (let from = 0; from < MAX_PER_TABLE; from += PAGE) {
-      const { data, error: e } = await c.db.from(t).select('*').eq('workspace_id', workspaceId).order(t === 'workspace_members' ? 'user_id' : 'id').range(from, from + PAGE - 1);
+      const { data, error: e } = await c.db.from(t).select('*').eq('workspace_id', workspaceId).order(t === 'workspace_members' ? 'user_id' : t === 'case_resolutions' ? 'investigation_id' : 'id').range(from, from + PAGE - 1);
       if (e) dbFail(e, `export ${t}`);
       rows.push(...(data ?? []));
       if (!data || data.length < PAGE) break;
@@ -58,13 +60,33 @@ export async function deleteWorkspace(c: Caller, workspaceId: string, b: z.infer
 
 export const accountDeleteSchema = z.object({ confirm: z.string() });
 
+export const REAUTH_WINDOW_MS = 10 * 60_000;
+
+/**
+ * When this session last authenticated (ms epoch): the newest `amr` timestamp of the access token (a per-session
+ * sign-in time that token refreshes keep), else the account's last_sign_in_at. The token was verified by caller().
+ */
+export function sessionAuthTime(req: Request, user: { last_sign_in_at?: string }): number | null {
+  try {
+    const payload = JSON.parse(Buffer.from((req.headers.get('authorization') ?? '').split('.')[1] ?? '', 'base64url').toString('utf8'));
+    const ts = (Array.isArray(payload.amr) ? payload.amr : []).map((a: { timestamp?: unknown }) => Number(a?.timestamp)).filter(Number.isFinite);
+    if (ts.length) return Math.max(...ts) * 1000;
+  } catch {
+    // fall through to the account's last sign-in
+  }
+  const t = Date.parse(user.last_sign_in_at ?? '');
+  return Number.isNaN(t) ? null : t;
+}
+
 /**
  * Permanent account deletion; body { confirm: "<the account's email>" }. Refused (409 LAST_OWNER, nothing changed) while
  * the caller is the only owner of a workspace that has other members: transfer ownership or remove them first.
  * Workspaces where the caller is the only member are deleted (stored images first). Then the auth user is deleted:
  * memberships cascade and authorship on evidence in shared workspaces is cleared (set null), the evidence stays.
  */
-export async function deleteAccount(c: Caller, b: z.infer<typeof accountDeleteSchema>) {
+export async function deleteAccount(c: Caller, b: z.infer<typeof accountDeleteSchema>, authTime: number | null, now = Date.now()) {
+  if (authTime === null || now - authTime > REAUTH_WINDOW_MS)
+    throw new ApiError(401, 'REAUTH_REQUIRED', 'For your safety, deleting your account needs a sign-in from the last 10 minutes. Sign in again with a fresh magic link, then retry.');
   if (!c.user.email || b.confirm.trim().toLowerCase() !== c.user.email.toLowerCase())
     throw new ApiError(422, 'CONFIRMATION_MISMATCH', 'Type your account email exactly to confirm deletion.');
   const admin = adminDb();
@@ -90,10 +112,14 @@ export async function deleteAccount(c: Caller, b: z.infer<typeof accountDeleteSc
     await removeWorkspaceObjects(ws);
     const { error: e3 } = await admin.from('workspaces').delete().eq('id', ws);
     if (e3) dbFail(e3, 'delete workspace');
+    await audit(c, { workspaceId: null, action: 'workspace.delete', targetType: 'workspace', targetId: ws, metadata: { viaAccountDeletion: true } });
   }
   const { error: e4 } = await admin.auth.admin.deleteUser(c.user.id);
+  // A concurrent ownership change can make this the last owner after the check above: the database trigger
+  // (keep_an_owner) then refuses the cascade and nothing about the account changes.
   if (e4) throw new ApiError(500, 'INTERNAL', 'Account deletion failed after its workspaces were removed; retry.');
-  // actor null: the auth user no longer exists. target_id keeps the (now unlinkable) user id for the trail.
+  // actor null: the auth user no longer exists. target_id keeps the deleted user's id: pseudonymous, not anonymous (it
+  // still matches that id in earlier exports or logs) until the retention purge removes the event.
   await audit(c, { workspaceId: null, action: 'account.delete', targetType: 'user', targetId: c.user.id, metadata: { workspacesDeleted: solo.length, membershipsRemoved: ids.length - solo.length } }, null);
   return { deleted: true, workspacesDeleted: solo, membershipsRemoved: ids.length - solo.length };
 }
